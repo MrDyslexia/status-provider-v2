@@ -1,0 +1,49 @@
+/**
+ * OpenCode Status Plugin
+ *
+ * Shows status status in OpenCode without LLM invocation.
+ *
+ * @packageDocumentation
+ */
+
+import { StatusProviderPlugin } from "./plugin.js";
+
+type V1PluginModule = {
+  id: string;
+  server: typeof StatusProviderPlugin;
+};
+
+// V1 plugin format: default export with id + server.
+// This avoids the legacy getLegacyPlugins fallback path in OpenCode's plugin
+// loader, which iterates Object.values(mod) and can conflict with other
+// plugins that also use the legacy path.
+//
+// Do NOT also export `tui` here: opencode resolves `server` and `tui` as
+// independent plugin entrypoints via package.json's exports["./server"] /
+// exports["./tui"] (see src/tui.tsx for the tui-kind module). A single
+// default export carrying both throws "must default export either server()
+// or tui(), not both".
+const pluginModule = {
+  id: "status-provider",
+  server: StatusProviderPlugin,
+} satisfies V1PluginModule;
+
+export default pluginModule;
+
+// Keep the named export for backward compatibility with consumers that import
+// { StatusProviderPlugin } directly.
+export { StatusProviderPlugin } from "./plugin.js";
+
+// Re-export types for consumers (types are erased at runtime, so safe to export)
+export type {
+  StatusProviderConfig,
+  GoogleModelId,
+  PricingSnapshotSource,
+  CopilotEnterpriseUsageResult,
+  CopilotOrganizationUsageResult,
+  CopilotStatusResult,
+  GoogleStatusResult,
+  GoogleModelStatus,
+  MiniMaxResult,
+  MiniMaxResultEntry,
+} from "./lib/types.js";
