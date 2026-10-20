@@ -60,6 +60,9 @@ function mergeOpenCodeConfig(
   next: Record<string, unknown>,
 ): Record<string, unknown> {
   const merged = { ...base, ...next };
+  if (Array.isArray(base.plugins) || Array.isArray(next.plugins)) {
+    merged.plugins = [...(Array.isArray(base.plugins) ? base.plugins : []), ...(Array.isArray(next.plugins) ? next.plugins : [])];
+  }
 
   if (isRecord(base.provider) || isRecord(next.provider)) {
     merged.provider = {

@@ -68,8 +68,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   }
 
   if (command === "show") {
-    const { runCliShowCommand } = await import("../lib/cli-show.js");
-    return await runCliShowCommand({ argv: rest });
+    const { runV2Show } = await import("../v2/local-client.js");
+    return await runV2Show(rest);
   }
 
   if (command === "config") {

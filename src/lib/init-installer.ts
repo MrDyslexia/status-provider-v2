@@ -5,7 +5,6 @@ import { basename } from "path";
 import { writeJsonAtomic } from "./atomic-json.js";
 import {
   dedupeNonEmptyStrings,
-  extractPluginSpecsFromParsedConfig,
   getPluginSpecFromEntry,
   isStatusPluginSpec,
   resolveEditableConfigPath,
@@ -28,9 +27,8 @@ import {
 import { getStatusProviderConfigPath, STATUS_PROVIDER_CONFIG_RELATIVE_PATH } from "./config.js";
 import type { StatusProviderConfig } from "./types.js";
 
-const STATUS_PLUGIN_SPEC = "status-provider";
+const STATUS_PLUGIN_SPEC = "status-provider-v2";
 const OPENCODE_SCHEMA_URL = "https://opencode.ai/config.json";
-const TUI_SCHEMA_URL = "https://opencode.ai/tui.json";
 const GITHUB_REPO_URL = "https://github.com/MrDyslexia/status-provider";
 const GITHUB_STAR_NOTE = `if this helps, stars are appreciated: ${GITHUB_REPO_URL}`;
 
@@ -299,66 +297,21 @@ function appendStatusPluginIfMissing(params: {
 }
 
 function ensureTopLevelPluginArray(root: JsonObject, edit: PlannedConfigEdit): unknown[] {
-  if (!hasOwnKey(root, "plugin")) {
+  if (!hasOwnKey(root, "plugins")) {
     const next: unknown[] = [];
-    root.plugin = next;
+    root.plugins = next;
     edit.changed = true;
     return next;
   }
 
-  if (!Array.isArray(root.plugin)) {
+  if (!Array.isArray(root.plugins)) {
     throw new InitInstallerError(
-      `Cannot update ${edit.kind} config because plugin is not an array.`,
+      `Cannot update ${edit.kind} config because plugins is not an array.`,
       { path: edit.path },
     );
   }
 
-  return root.plugin;
-}
-
-function ensureTuiPluginArray(
-  root: JsonObject,
-  edit: PlannedConfigEdit,
-): {
-  container: unknown[];
-  pathLabel: string;
-} {
-  if (isPlainObject(root.tui) && hasOwnKey(root.tui, "plugin")) {
-    const tuiRoot = root.tui as JsonObject;
-    if (!Array.isArray(tuiRoot.plugin)) {
-      throw new InitInstallerError(
-        `Cannot update ${edit.kind} config because tui.plugin is not an array.`,
-        { path: edit.path },
-      );
-    }
-
-    return {
-      container: tuiRoot.plugin,
-      pathLabel: "tui.plugin",
-    };
-  }
-
-  if (hasOwnKey(root, "plugin")) {
-    if (!Array.isArray(root.plugin)) {
-      throw new InitInstallerError(
-        `Cannot update ${edit.kind} config because plugin is not an array.`,
-        { path: edit.path },
-      );
-    }
-
-    return {
-      container: root.plugin,
-      pathLabel: "plugin",
-    };
-  }
-
-  const next: unknown[] = [];
-  root.plugin = next;
-  edit.changed = true;
-  return {
-    container: next,
-    pathLabel: "plugin",
-  };
+  return root.plugins;
 }
 
 function addSettingIfMissing(
@@ -551,7 +504,7 @@ async function planOpencodeEdit(params: {
   const plugin = ensureTopLevelPluginArray(root, edit);
   appendStatusPluginIfMissing({
     container: plugin,
-    pathLabel: "plugin",
+    pathLabel: "plugins",
     kind: "opencode",
     edit,
   });
@@ -642,50 +595,6 @@ async function planStatusConfigEdit(params: {
   edit.plannedData = statusProvider;
   if (edit.changed) {
     edit.nextData = statusProvider;
-  }
-
-  return edit;
-}
-
-async function planTuiEdit(params: {
-  selections: InitInstallerSelections;
-  baseDir: string;
-}): Promise<PlannedConfigEdit> {
-  const target = resolveEditableConfigPath({ dir: params.baseDir, kind: "tui" });
-  const edit: PlannedConfigEdit = {
-    kind: "tui",
-    path: target.path,
-    existed: target.existed,
-    format: target.format,
-    changed: false,
-    addedPlugins: [],
-    addedKeys: [],
-    updatedKeys: [],
-    skippedValues: [],
-    warnings:
-      target.format === "jsonc"
-        ? ["Existing JSONC comments/trailing commas will be stripped."]
-        : [],
-  };
-
-  const root = target.existed ? await readExistingConfig(target) : {};
-  ensureSchema(root, TUI_SCHEMA_URL, edit);
-
-  const existingPluginSpecs = extractPluginSpecsFromParsedConfig(root);
-  if (existingPluginSpecs.some((spec) => isStatusPluginSpec(spec, "tui"))) {
-    edit.skippedValues.push(`tui config already includes ${STATUS_PLUGIN_SPEC}`);
-  } else {
-    const pluginTarget = ensureTuiPluginArray(root, edit);
-    appendStatusPluginIfMissing({
-      container: pluginTarget.container,
-      pathLabel: pluginTarget.pathLabel,
-      kind: "tui",
-      edit,
-    });
-  }
-
-  if (edit.changed) {
-    edit.nextData = root;
   }
 
   return edit;
@@ -808,9 +717,7 @@ export async function planInitInstaller(params: {
     }),
     statusEdit,
   ];
-  if (statusUiIntent.installTuiPlugin) {
-    edits.push(await planTuiEdit({ selections, baseDir }));
-  }
+  // v2 loads server and TUI from one package entry in opencode.json.plugins.
 
   const quickSetupNotes = buildQuickSetupNotes(selections);
   const warnings = edits.flatMap((edit) => edit.warnings);

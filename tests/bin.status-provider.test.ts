@@ -15,8 +15,8 @@ vi.mock("../src/lib/init-installer.js", () => ({
   runInitInstaller: commandMocks.runInitInstaller,
 }));
 
-vi.mock("../src/lib/cli-show.js", () => ({
-  runCliShowCommand: commandMocks.runCliShowCommand,
+vi.mock("../src/v2/local-client.js", () => ({
+  runV2Show: commandMocks.runCliShowCommand,
 }));
 
 vi.mock("../src/lib/cli-update.js", () => ({
@@ -57,7 +57,7 @@ describe("status-provider bin", () => {
     const code = await main(["show"]);
 
     expect(code).toBe(0);
-    expect(commandMocks.runCliShowCommand).toHaveBeenCalledWith({ argv: [] });
+    expect(commandMocks.runCliShowCommand).toHaveBeenCalledWith([]);
     expect(commandMocks.runInitInstaller).not.toHaveBeenCalled();
   });
 
@@ -67,9 +67,7 @@ describe("status-provider bin", () => {
     const code = await main(["show", "--provider", "copilot"]);
 
     expect(code).toBe(0);
-    expect(commandMocks.runCliShowCommand).toHaveBeenCalledWith({
-      argv: ["--provider", "copilot"],
-    });
+    expect(commandMocks.runCliShowCommand).toHaveBeenCalledWith(["--provider", "copilot"]);
   });
 
   it("dispatches update args to the update command", async () => {

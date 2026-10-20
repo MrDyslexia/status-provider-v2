@@ -1,4 +1,5 @@
 import { resolve } from "path";
+import { activeProviderIds } from "../v2/local-client.js";
 
 import type { StatusRuntimeClient } from "./status-runtime-context.js";
 import type { StatusProviderConfig } from "./types.js";
@@ -127,6 +128,8 @@ export function createCliStatusClient(params: { configRootDir: string }): Status
         };
       },
       providers: async () => {
+        const active = await activeProviderIds();
+        if (active) return { data: { providers: active.map((id) => ({ id })) } };
         providerIdsPromise ??= loadConfiguredProviderIds({
           configRootDir: params.configRootDir,
         });

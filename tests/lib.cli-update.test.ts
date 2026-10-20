@@ -37,7 +37,7 @@ describe("status-provider update", () => {
     tempDir = "";
   });
 
-  it("pins project server and TUI plugin specs while preserving tuple options", async () => {
+  it("pins the combined v2 entry while preserving tuple options and leaving legacy TUI files alone", async () => {
     tempDir = mkdtempSync(join(tmpdir(), "status-provider-update-"));
     const project = join(tempDir, "project");
     const nested = join(project, "packages", "app");
@@ -45,7 +45,7 @@ describe("status-provider update", () => {
     mkdirSync(nested, { recursive: true });
     writeFileSync(
       join(project, "opencode.json"),
-      JSON.stringify({ plugin: ["other-plugin", "status-provider"] }),
+      JSON.stringify({ plugins: ["other-plugin", ["status-provider-v2", { compact: true }]] }),
       "utf8",
     );
     writeFileSync(
@@ -60,18 +60,17 @@ describe("status-provider update", () => {
       cwd: nested,
     });
 
-    expect(plan.targetSpec).toBe("status-provider@0.2.0");
-    expect(plan.edits).toHaveLength(2);
+    expect(plan.targetSpec).toBe("status-provider-v2@0.2.0");
+    expect(plan.edits).toHaveLength(1);
     expect(await applyCliUpdatePlan(plan)).toEqual([
       join(project, "opencode.json"),
-      join(project, "tui.json"),
     ]);
-    expect(readJson(join(project, "opencode.json")).plugin).toEqual([
+    expect(readJson(join(project, "opencode.json")).plugins).toEqual([
       "other-plugin",
-      "status-provider@0.2.0",
+      ["status-provider-v2@0.2.0", { compact: true }],
     ]);
     expect(readJson(join(project, "tui.json")).plugin).toEqual([
-      ["status-provider@0.2.0", { compact: true }],
+      ["status-provider@0.1.0", { compact: true }],
     ]);
   });
 
@@ -81,7 +80,7 @@ describe("status-provider update", () => {
     mkdirSync(configDir, { recursive: true });
     writeFileSync(
       join(configDir, "opencode.json"),
-      JSON.stringify({ plugin: ["status-provider"] }),
+      JSON.stringify({ plugins: ["status-provider-v2"] }),
       "utf8",
     );
 
@@ -93,7 +92,7 @@ describe("status-provider update", () => {
     });
     await applyCliUpdatePlan(plan);
 
-    expect(readJson(join(configDir, "opencode.json")).plugin).toEqual(["status-provider@0.2.0"]);
+    expect(readJson(join(configDir, "opencode.json")).plugins).toEqual(["status-provider-v2@0.2.0"]);
   });
 
   it("preserves JSONC comments", async () => {
@@ -104,7 +103,7 @@ describe("status-provider update", () => {
       join(project, "opencode.jsonc"),
       `{
         // keep this comment
-        "plugin": ["status-provider"],
+        "plugins": ["status-provider-v2"],
       }`,
       "utf8",
     );
@@ -118,7 +117,7 @@ describe("status-provider update", () => {
 
     const output = readFileSync(join(project, "opencode.jsonc"), "utf8");
     expect(output).toContain("// keep this comment");
-    expect(output).toContain('"status-provider@0.2.0"');
+    expect(output).toContain('"status-provider-v2@0.2.0"');
   });
 
   it("does not replace local development plugins", async () => {
@@ -127,7 +126,7 @@ describe("status-provider update", () => {
     mkdirSync(join(project, ".git"), { recursive: true });
     const path = join(project, "opencode.json");
     const localSpec = "file:///workspace/status-provider/dist/index.js";
-    writeFileSync(path, JSON.stringify({ plugin: [localSpec] }), "utf8");
+    writeFileSync(path, JSON.stringify({ plugins: [localSpec] }), "utf8");
     const stdout = outputBuffer();
     const stderr = outputBuffer();
 
@@ -141,7 +140,7 @@ describe("status-provider update", () => {
     expect(code).toBe(1);
     expect(stdout.text()).toContain(`skip local plugin: ${localSpec}`);
     expect(stderr.text()).toContain("Local file plugins are not replaced");
-    expect(readJson(path).plugin).toEqual([localSpec]);
+    expect(readJson(path).plugins).toEqual([localSpec]);
   });
 
   it("supports a dry run without writing files", async () => {
@@ -149,7 +148,7 @@ describe("status-provider update", () => {
     const project = join(tempDir, "project");
     mkdirSync(join(project, ".git"), { recursive: true });
     const path = join(project, "opencode.json");
-    writeFileSync(path, JSON.stringify({ plugin: ["status-provider"] }), "utf8");
+    writeFileSync(path, JSON.stringify({ plugins: ["status-provider-v2"] }), "utf8");
     const stdout = outputBuffer();
     const fetchLatestVersion = vi.fn().mockResolvedValue("0.2.0");
 
@@ -165,7 +164,7 @@ describe("status-provider update", () => {
     expect(fetchLatestVersion).toHaveBeenCalledOnce();
     expect(stdout.text()).toContain(`would update: ${path}`);
     expect(stdout.text()).toContain("Dry run: no files changed");
-    expect(readJson(path).plugin).toEqual(["status-provider"]);
+    expect(readJson(path).plugins).toEqual(["status-provider-v2"]);
   });
 
   it("returns an error when no npm plugin config exists", async () => {
@@ -195,7 +194,7 @@ describe("status-provider update", () => {
 
     await expect(fetchLatestStatusProviderVersion({ fetch: fetch as any })).resolves.toBe("0.2.0");
     expect(fetch).toHaveBeenCalledWith(
-      "https://registry.npmjs.org/status-provider/latest",
+      "https://registry.npmjs.org/status-provider-v2/latest",
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
   });

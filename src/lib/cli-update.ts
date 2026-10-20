@@ -16,7 +16,7 @@ import { parseJsonOrJsonc } from "./jsonc.js";
 import { getOpencodeRuntimeDirCandidates } from "./opencode-runtime-paths.js";
 import { getPackageVersion } from "./version.js";
 
-const PACKAGE_NAME = "status-provider";
+const PACKAGE_NAME = "status-provider-v2";
 const DEFAULT_REGISTRY_URL = `https://registry.npmjs.org/${PACKAGE_NAME}/latest`;
 const VERSION_PATTERN = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 
@@ -183,24 +183,13 @@ function updateParsedConfig(params: {
   const skippedLocalSpecs: string[] = [];
 
   const rootResult = updatePluginList({
-    list: params.parsed.plugin,
+    list: params.parsed.plugins,
     targetSpec: params.targetSpec,
   });
-  if (rootResult.changed) params.parsed.plugin = rootResult.list;
+  if (rootResult.changed) params.parsed.plugins = rootResult.list;
   changed ||= rootResult.changed;
   matchedSpecs.push(...rootResult.matchedSpecs);
   skippedLocalSpecs.push(...rootResult.skippedLocalSpecs);
-
-  if (isJsonObject(params.parsed.tui)) {
-    const tuiResult = updatePluginList({
-      list: params.parsed.tui.plugin,
-      targetSpec: params.targetSpec,
-    });
-    if (tuiResult.changed) params.parsed.tui.plugin = tuiResult.list;
-    changed ||= tuiResult.changed;
-    matchedSpecs.push(...tuiResult.matchedSpecs);
-    skippedLocalSpecs.push(...tuiResult.skippedLocalSpecs);
-  }
 
   return { nextData: params.parsed, changed, matchedSpecs, skippedLocalSpecs };
 }
@@ -222,7 +211,7 @@ export async function planCliUpdate(params: {
   const seen = new Set<string>();
 
   for (const target of resolveScopeDirs({ scopes, cwd, env, homeDir })) {
-    for (const kind of ["opencode", "tui"] as const) {
+    for (const kind of ["opencode"] as const) {
       for (const path of getConfigFileCandidatePaths(target.dir, kind)) {
         if (!existsSync(path) || seen.has(path)) continue;
         seen.add(path);

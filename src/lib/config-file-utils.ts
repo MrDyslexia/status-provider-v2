@@ -153,6 +153,7 @@ export function extractPluginSpecsFromParsedConfig(parsed: unknown): string[] {
 
   const root = parsed as Record<string, unknown>;
   const pluginEntries: unknown[] = [];
+  if (Array.isArray(root.plugins)) pluginEntries.push(...root.plugins);
 
   if (Array.isArray(root.plugin)) {
     pluginEntries.push(...root.plugin);
@@ -202,6 +203,8 @@ export function isStatusNpmPluginSpec(spec: string): boolean {
   const normalized = spec.trim().toLowerCase();
   return (
     normalized === "status-provider" ||
+    normalized === "status-provider-v2" ||
+    normalized.startsWith("status-provider-v2@") ||
     normalized.startsWith("status-provider@") ||
     normalized === "@mrdyslexia/status-provider" ||
     normalized.startsWith("@mrdyslexia/status-provider@")
