@@ -77,25 +77,28 @@
   "devDependencies": {
     "@babel/core": "7.29.7",
     "@babel/preset-typescript": "7.29.7",
-    "@opencode-ai/plugin": "1.17.15",
+    "@opencode/plugin": "2.0.32",
+    "@opencode/theme": "2.0.32",
     "@types/node": "22.20.0",
     "babel-preset-solid": "1.9.12",
+    "effect": "4.0.1",
     "prettier": "3.8.4",
     "typescript": "5.9.3",
     "vitest": "4.1.9"
   },
   "dependencies": {
+    "@opentui/core": "0.5.17",
+    "@opentui/solid": "0.5.17",
+    "solid-js": "1.9.15",
+    "@opencode/client": "2.0.32",
     "@clack/prompts": "1.6.0",
-    "@opentui/core": "0.2.16",
-    "@opentui/solid": "0.2.16",
     "comment-json": "5.0.0",
-    "solid-js": "1.9.13",
     "xdg-basedir": "5.1.0"
   },
   "peerDependencies": {
-    "@opencode-ai/plugin": "1.17.15"
+    "@opencode/plugin": "2.0.32"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=22.0.0"
   }
 }
