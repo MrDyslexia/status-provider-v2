@@ -3,25 +3,23 @@
   "version": "0.0.0-dev.0",
   "private": true,
   "packageManager": "bun@1.3.4",
-  "description": "Development bootstrap for status-provider on OpenCode 2.x; API migration and runtime compatibility are not complete.",
+  "description": "Provider quota and session usage visibility for OpenCode 2.x.",
   "type": "module",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "main": "./dist/v2/server.js",
+  "types": "./dist/v2/server.d.ts",
   "bin": {
     "status-provider": "./dist/bin/status-provider.js"
   },
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "default": "./dist/index.js"
+      "types": "./dist/v2/server.d.ts",
+      "default": "./dist/v2/server.js"
     },
-    "./server": {
-      "types": "./dist/index.d.ts",
-      "default": "./dist/index.js"
-    },
-    "./tui": {
-      "types": "./dist/tui.d.ts",
-      "default": "./dist/tui.js"
+    "./server": "./dist/v2/server.js",
+    "./tui": "./dist/v2/tui.js",
+    "./rpc": {
+      "types": "./dist/v2/rpc.d.ts",
+      "default": "./dist/v2/rpc.js"
     }
   },
   "oc-plugin": [
@@ -29,12 +27,15 @@
     "tui"
   ],
   "files": [
+    "server.js",
+    "tui.js",
+    "rpc.js",
     "dist",
     "README.md",
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsc && node scripts/copy-data.mjs && node scripts/prepare-tui-dist.mjs",
+    "build": "node scripts/clean-dist.mjs && tsc && node scripts/copy-data.mjs && node scripts/prepare-tui-dist.mjs",
     "build:check": "bun run build && bun pm pack --dry-run",
     "pricing:refresh": "node scripts/refresh-modelsdev-pricing.mjs",
     "pricing:refresh:if-stale": "node scripts/refresh-modelsdev-pricing-if-stale.mjs",

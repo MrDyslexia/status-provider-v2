@@ -5,11 +5,11 @@ import { fileURLToPath } from 'node:url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const rootDir = path.resolve(__dirname, '..')
-const sourcePath = path.join(rootDir, 'src', 'tui.tsx')
-const distTsxPath = path.join(rootDir, 'dist', 'tui.tsx')
-const distJsPath = path.join(rootDir, 'dist', 'tui.js')
-const distJsxPath = path.join(rootDir, 'dist', 'tui.jsx')
-const distJsxMapPath = path.join(rootDir, 'dist', 'tui.jsx.map')
+const sourcePath = path.join(rootDir, 'src', 'v2', 'tui.tsx')
+const distTsxPath = path.join(rootDir, 'dist', 'v2', 'tui.tsx')
+const distJsPath = path.join(rootDir, 'dist', 'v2', 'tui.js')
+const distJsxPath = path.join(rootDir, 'dist', 'v2', 'tui.jsx')
+const distJsxMapPath = path.join(rootDir, 'dist', 'v2', 'tui.jsx.map')
 
 const code = await fs.readFile(sourcePath, 'utf8')
 

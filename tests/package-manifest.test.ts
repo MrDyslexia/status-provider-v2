@@ -21,7 +21,7 @@ describe("package manifest compatibility", () => {
     // setup. Upstream pnpm-specific settings live in `pnpm-workspace.yaml`
     // and are not enforced here.
     expect(pkg.packageManager).toMatch(/^bun@/);
-    expect(pkg.engines?.node).toBe(">=18.0.0");
+    expect(pkg.engines?.node).toBe(">=22.0.0");
   });
 
   it("hardens pnpm dependency resolution against fresh-package supply-chain attacks", () => {
@@ -35,23 +35,23 @@ describe("package manifest compatibility", () => {
   });
 
   it("ships explicit server, tui, and init bin entrypoints for OpenCode", () => {
-    expect(pkg.main).toBe("./dist/index.js");
+    expect(pkg.main).toBe("./dist/v2/server.js");
     expect(pkg.bin).toMatchObject({
       "status-provider": "./dist/bin/status-provider.js",
     });
     expect(pkg["oc-plugin"]).toEqual(["server", "tui"]);
     expect(pkg.dependencies?.["@clack/prompts"]).toBeTruthy();
     expect(pkg.exports?.["."]).toEqual({
-      default: "./dist/index.js",
-      types: "./dist/index.d.ts",
+      default: "./dist/v2/server.js",
+      types: "./dist/v2/server.d.ts",
     });
-    expect(pkg.exports?.["./server"]).toEqual({
-      default: "./dist/index.js",
-      types: "./dist/index.d.ts",
-    });
-    expect(pkg.exports?.["./tui"]).toEqual({
-      default: "./dist/tui.js",
-      types: "./dist/tui.d.ts",
+    // The OpenCode v2 loader resolves these two subpaths as plain strings
+    // (conditional objects are not picked up reliably), so keep them flat.
+    expect(pkg.exports?.["./server"]).toBe("./dist/v2/server.js");
+    expect(pkg.exports?.["./tui"]).toBe("./dist/v2/tui.js");
+    expect(pkg.exports?.["./rpc"]).toEqual({
+      default: "./dist/v2/rpc.js",
+      types: "./dist/v2/rpc.d.ts",
     });
   });
 });
