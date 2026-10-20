@@ -3,6 +3,7 @@
  */
 
 import { REQUEST_TIMEOUT_MS } from "./types.js";
+import { getAuthRequestSignal } from "./auth-context.js";
 
 /**
  * Fetch with timeout using AbortController.
@@ -19,6 +20,10 @@ export async function fetchWithTimeout(
   timeoutMs: number = REQUEST_TIMEOUT_MS,
 ): Promise<Response> {
   const controller = new AbortController();
+  const parent = options.signal ?? getAuthRequestSignal();
+  const abort = () => controller.abort(parent?.reason);
+  if (parent?.aborted) abort();
+  else parent?.addEventListener("abort", abort, { once: true });
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
@@ -28,11 +33,13 @@ export async function fetchWithTimeout(
     });
     return response;
   } catch (err) {
+    if (parent?.aborted) throw parent.reason ?? err;
     if (err instanceof Error && err.name === "AbortError") {
       throw new Error(`Request timeout after ${Math.round(timeoutMs / 1000)}s`);
     }
     throw err;
   } finally {
     clearTimeout(timeoutId);
+    parent?.removeEventListener("abort", abort);
   }
 }

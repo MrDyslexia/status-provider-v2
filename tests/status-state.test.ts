@@ -31,6 +31,26 @@ function createTestContext() {
 }
 
 describe("status-state shared cache", () => {
+  it("coalesces simultaneous cold clients before any async cache reads", async () => {
+    const { fetchStatusProviderResult } = await import("../src/lib/status-state.js");
+    const provider = { id: "synthetic", isAvailable: vi.fn(async () => true), fetch: vi.fn(async () => {
+      await new Promise((r) => setTimeout(r, 10));
+      return { attempted: true, entries: [{ name: "Synthetic", percentRemaining: 50 }], errors: [] };
+    }) };
+    await Promise.all(Array.from({ length: 5 }, () => fetchStatusProviderResult({ provider, ctx: createTestContext(), ttlMs: 60000 })));
+    expect(provider.fetch).toHaveBeenCalledTimes(1);
+  });
+  it("does not reuse persisted quota across credential identities", async () => {
+    const { fetchStatusProviderResult } = await import("../src/lib/status-state.js");
+    const { withAuthSource } = await import("../src/lib/opencode-auth.js");
+    const provider = { id: "synthetic", isAvailable: vi.fn(async () => true), fetch: vi.fn()
+      .mockResolvedValueOnce({ attempted: true, entries: [{ name: "a", percentRemaining: 80 }], errors: [] })
+      .mockResolvedValueOnce({ attempted: true, entries: [{ name: "b", percentRemaining: 20 }], errors: [] }) };
+    const read = (identity: string) => withAuthSource(async () => ({}), identity, () => fetchStatusProviderResult({ provider, ctx: createTestContext(), ttlMs: 60000 }));
+    const a = await read("account-a"); const b = await read("account-b");
+    expect(a.entries[0]?.name).toBe("a"); expect(b.entries[0]?.name).toBe("b");
+    expect(provider.fetch).toHaveBeenCalledTimes(2);
+  });
   beforeEach(async () => {
     vi.restoreAllMocks();
     vi.resetModules();

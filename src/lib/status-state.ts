@@ -8,6 +8,7 @@ import { writeJsonAtomic } from "./atomic-json.js";
 import { getOpencodeRuntimeDirs } from "./opencode-runtime-paths.js";
 import { isLiveLocalUsageProviderId } from "./provider-metadata.js";
 import { getPackageVersion } from "./version.js";
+import { getAuthCacheIdentity } from "./auth-context.js";
 
 const STATUS_PROVIDER_CACHE_VERSION = 2 as const;
 const STATUS_PROVIDER_CACHE_PACKAGE_VERSION_FALLBACK = "unknown";
@@ -45,6 +46,7 @@ export type PersistedStatusProviderCacheEntry = {
 
 const inMemoryCache = new Map<string, PersistedStatusProviderCacheEntry>();
 const inFlightByKey = new Map<string, Promise<StatusProviderResult>>();
+const operationsByKey = new Map<string, Promise<StatusProviderResult>>();
 let lastPruneAtMs = 0;
 
 export function cloneStatusProviderResult(result: StatusProviderResult): StatusProviderResult {
@@ -324,13 +326,32 @@ export async function fetchStatusProviderResult(params: {
   ttlMs: number;
   bypassCache?: boolean;
 }): Promise<StatusProviderResult> {
+  // Claim before ANY asynchronous disk/version work. Otherwise simultaneous cold
+  // clients can both pass the miss checks and start duplicate provider requests.
+  const key = `${getAuthCacheIdentity()}|${buildStatusProviderStateCacheKey(params.provider.id, params.ctx)}`;
+  const existing = operationsByKey.get(key);
+  if (existing) return cloneStatusProviderResult(await existing);
+  const pending = fetchStatusProviderResultUnshared(params);
+  operationsByKey.set(key, pending);
+  try { return cloneStatusProviderResult(await pending); }
+  finally { if (operationsByKey.get(key) === pending) operationsByKey.delete(key); }
+}
+
+async function fetchStatusProviderResultUnshared(params: {
+  provider: StatusProvider;
+  ctx: StatusProviderContext;
+  ttlMs: number;
+  bypassCache?: boolean;
+}): Promise<StatusProviderResult> {
   const { provider, ctx, ttlMs, bypassCache = false } = params;
 
-  if (bypassCache || isLiveLocalUsageProviderId(provider.id)) {
+  if (isLiveLocalUsageProviderId(provider.id)) {
     return cloneStatusProviderResult(await provider.fetch(ctx));
   }
 
-  const key = buildStatusProviderStateCacheKey(provider.id, ctx);
+  const scope = getAuthCacheIdentity();
+  const baseKey = buildStatusProviderStateCacheKey(provider.id, ctx);
+  const key = scope === "legacy" ? baseKey : `${baseKey}|auth=${scope}`;
   const now = Date.now();
   const packageVersion = await getStatusProviderCachePackageVersion();
   await maybePrunePersistedStatusProviderCache(now);
@@ -343,9 +364,8 @@ export async function fetchStatusProviderResult(params: {
   if (
     inMemory &&
     inMemory.packageVersion === packageVersion &&
-    ttlMs > 0 &&
     (isEntryRateLimited(inMemory, now) ||
-      now - inMemory.timestamp < resolveCacheTtlMs(inMemory.result, ttlMs))
+      (!bypassCache && ttlMs > 0 && now - inMemory.timestamp < resolveCacheTtlMs(inMemory.result, ttlMs)))
   ) {
     return cloneStatusProviderResult(inMemory.result);
   }
@@ -364,11 +384,11 @@ export async function fetchStatusProviderResult(params: {
     key,
     providerId: provider.id,
     packageVersion,
-    ttlMs,
+    ttlMs: bypassCache ? 0 : ttlMs,
     now,
   });
   if (
-    persisted &&
+    !bypassCache && persisted &&
     !isEntryRateLimited(persisted, now) &&
     now - persisted.timestamp < ttlMs
   ) {
@@ -465,6 +485,7 @@ export async function fetchStatusProviderResult(params: {
 }
 
 export function __resetStatusStateForTests(): void {
+  operationsByKey.clear();
   inMemoryCache.clear();
   inFlightByKey.clear();
   lastPruneAtMs = 0;
