@@ -1,32 +1,95 @@
 # status-provider-v2
 
-Independent development repository for bringing status-provider to **OpenCode 2.x**.
-This is a bootstrap, not a completed migration or an installable V2 release.
+Provider quotas, reset countdowns, session usage and native TUI settings for **OpenCode 2.x**.
+The implementation is verified against **OpenCode 2.0.32**. This checkout is still a private development package (`0.0.0-dev.0`), not a published npm release.
 
-## Current status
+## Try the development build
 
-- Application code, tests, and build tooling start from the clean V1 baseline.
-- The OpenCode SDK and TUI dependencies are still the inherited V1 versions.
-- No OpenCode 2.x runtime compatibility has been verified.
-- npm publication is blocked with `"private": true` until release readiness is established.
+Use an isolated OpenCode environment with its own configuration, database, caches and credentials. Build the checkout:
 
-**Do not install, initialize, update, or load this checkout into your active OpenCode environment.**
-The inherited CLI, installer, commands, configuration paths, and caches still use
-`status-provider` identities. Side-by-side installation with V1 is not supported yet.
+```sh
+bun install --frozen-lockfile
+bun run build
+```
+
+Add the absolute checkout path to that environment's `opencode.json`:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugins": ["/absolute/path/to/status-provider-v2"]
+}
+```
+
+Restart OpenCode. One package entry loads both the server and TUI plugins; a separate `tui.json` entry is unnecessary. Root `server.js` and `tui.js` support the local-directory loader.
+
+Requires Node 22+ for the CLI/build and Bun 1.3.4+ for development. SDK packages are pinned to `2.0.32`, OpenTUI to `0.5.17`, and Solid to `1.9.15`.
+
+## Commands
+
+| Command | Behavior |
+| --- | --- |
+| `/status-provider` | Show a quota toast. |
+| `/status-provider-toast` | Alias for the quota toast. |
+| `/status-provider-info` | Scrollable diagnostics: effective settings, availability and provider errors. |
+| `/status-provider-details` | Open the native provider panel in an existing session. |
+| `/status-provider-config` | Edit settings in native dialogs; save explicitly or discard with Esc. |
+
+These commands do not create chat turns. The compiled CLI also supports `node dist/bin/status-provider.js show [--provider <id>]` against a running local v2 service, and `config` for the terminal wizard. `init`/`update` target the v2 package; registry installation/update requires a published release.
+
+### Provider details
+
+Open a session before running `/status-provider-details`.
+
+| Keys | Action |
+| --- | --- |
+| Left / Right | Previous / next provider. |
+| P | Search and select a provider. |
+| R | Refresh the selected provider, respecting active rate-limit backoff. |
+| F | Toggle fullscreen. |
+| Up / Down, PageUp / PageDown, Home / End | Scroll the panel. |
+| Esc | Close and return to the conversation. |
+
+The panel shows all quota windows even when the sidebar uses `singleWindow`. Only the selected enabled provider is polled; disconnected and disabled providers have explicit states.
+
+## Settings and presentation
+
+`/status-provider-config` edits the same `<config-root>/status-provider/config.json` used by the CLI. It exposes provider selection/order, percentage semantics, sidebar and compact visibility, session counters, toasts, timing and provider-specific options.
+
+- Changes remain a draft until **Save changes**. Esc discards them.
+- Updates preserve unrelated file fields and use atomic writes. A stale draft cannot overwrite a newer edit; reload before saving again.
+- Globally controlled network settings remain read-only at workspace scope.
+- Saving refreshes this TUI without restarting OpenCode. Other clients reconcile on their next refresh.
+- The compact footer is opt-in and follows the current provider.
+- Legacy ASCII styling and native-provider-status suppression are not controls in this native settings UI; existing file values are preserved for compatibility.
+
+Quota severity always uses **remaining** quota, even if the displayed number means **used**:
+
+| Remaining | Label |
+| --- | --- |
+| More than 25% | Available |
+| More than 10%, up to 25% | Low |
+| More than 0%, up to 10% | Critical |
+| 0% or below | Exhausted |
+
+Native theme colors accompany these labels. Authentication failures and missing data are not presented as exhausted quota. Session counters and reset countdowns update locally without polling providers every second.
+
+## Architecture and verification
+
+The server resolves active OpenCode integration connections and owns provider polling. Credential material never enters the TUI. The `surfaces` and `details` RPCs return whitelisted presentation data; toasts and diagnostic reports remain text. Session token counts come from the v2 SDK, with host totals preserved after compaction.
+
+Provider caches are scoped to credential identity. Concurrent requests share work; cancelling one subscriber does not abort another subscriber's poll.
+
+Automated coverage includes configuration validation/persistence/conflicts, account isolation, cancellation, rate limits and TUI command contracts. Browser verification covers native panels, settings save/discard, dark/light themes, small terminals, keyboard scrolling and empty/error states. See [CONTRIBUTING.md](CONTRIBUTING.md) for checks.
+
+### Current integration limits
+
+- OpenAI quotas are verified with a real connection in the sandbox.
+- Ollama Cloud is implemented, but the sandbox credential currently receives HTTP 401; that integration remains an open validation item.
+- Anthropic subscription quota requires an OAuth connection. API-key inference alone does not expose subscription quota; the adapter does not rotate credentials or invoke a separate CLI.
+- Other integrations have automated provider tests; real-account verification is still needed. Optional external integrations require compatible integration/local usage sources; v1 authentication plugins are not installed automatically.
 
 For the existing V1 implementation, use [status-provider](https://github.com/MrDyslexia/status-provider).
-
-## Development scope
-
-1. Select and pin the exact OpenCode 2.x target and supported SDK contracts.
-2. Migrate server hooks, authentication, tools, and provider integration.
-3. Migrate TUI registration, commands, rendering, and cleanup.
-4. Separate installer, CLI, configuration, and cache identities from V1.
-5. Establish isolated tests and actual V2 host verification before enabling releases.
-
-No dependency upgrade, API migration, runtime test, CI workflow, or npm release is
-included in this bootstrap. See [CONTRIBUTING.md](CONTRIBUTING.md) for the inherited
-checks and known fixture limitations.
 
 ## Origin and license
 

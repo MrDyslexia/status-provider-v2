@@ -32,6 +32,7 @@
     "rpc.js",
     "dist",
     "README.md",
+    "CHANGELOG.md",
     "LICENSE"
   ],
   "scripts": {
