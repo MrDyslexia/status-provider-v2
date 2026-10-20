@@ -2,35 +2,49 @@
 /**
  * status-provider TUI plugin for OpenCode v2.
  *
- * Renders pre-formatted surfaces served by the status-provider server plugin
- * over RPC. This process never reads credentials or calls providers.
+ * Renders its own sidebar/compact panels from the structured snapshot served
+ * by the status-provider server plugin over RPC. This process never reads
+ * credentials or calls providers; it only draws numbers the server sent.
  */
 
 import { Plugin } from "@opencode/plugin/tui";
 import { Show, createEffect, createSignal } from "solid-js";
 import { formatSessionTimerText } from "../lib/session-timer.js";
+import { bar, formatTokenCount } from "../lib/format-utils.js";
 
 import { createDebounced, createRefresher } from "./tui-controller.js";
-import { StatusProviderRpc, type InfoWire, type SurfacesWire, type ToastWire } from "./rpc.js";
+import { buildCompactSummary, buildSidebarRows } from "./snapshot-format.js";
+import { displayError, providerErrorSummary, sidebarNotice, type QuotaTone } from "./sidebar-presentation.js";
+import type { SurfaceRequest } from "./quota-service.js";
+import {
+  StatusProviderRpc,
+  type InfoWire,
+  type PanelSnapshotWire,
+  type SurfacesWire,
+  type ToastWire,
+} from "./rpc.js";
 
 export const TUI_PLUGIN_ID = "status-provider.tui";
 
 const REFRESH_INTERVAL_MS = 60_000;
 const EVENT_DEBOUNCE_MS = 600;
+const SIDEBAR_BAR_WIDTH = 10;
 
-type PanelStatus = "disabled" | "loading" | "ready";
+const EMPTY_PANEL: PanelSnapshotWire = { status: "loading", entries: [], errors: [] };
 
 type SurfacesState = {
-  sidebar: { status: PanelStatus; lines: string[] };
-  compact: { status: PanelStatus; text: string };
+  sidebar: PanelSnapshotWire;
+  compact: PanelSnapshotWire;
   showSessionTimer: boolean;
+  compactMaxWidth: number;
   error: string;
 };
 
 const INITIAL_STATE: SurfacesState = {
-  sidebar: { status: "loading", lines: [] },
-  compact: { status: "loading", text: "" },
+  sidebar: EMPTY_PANEL,
+  compact: EMPTY_PANEL,
   showSessionTimer: false,
+  compactMaxWidth: 96,
   error: "",
 };
 
@@ -43,7 +57,7 @@ export default Plugin.define({
     });
 
     const location = () => context.location ?? context.data.location.default();
-    const request = (overrideSessionID?: string) => {
+    const request = (overrideSessionID?: string): SurfaceRequest => {
       const route = context.ui.router.current();
       const sessionID = overrideSessionID ?? (route.type === "session" ? route.sessionID : undefined);
       const sessionModel = sessionID ? context.data.session.get(sessionID)?.model : undefined;
@@ -82,14 +96,15 @@ export default Plugin.define({
       },
       apply: (result) =>
         mutate((draft) => {
-          draft.sidebar = { status: result.sidebar.status, lines: [...result.sidebar.lines] };
-          draft.compact = { status: result.compact.status, text: result.compact.text ?? "" };
+          draft.sidebar = result.sidebar;
+          draft.compact = result.compact;
           draft.showSessionTimer = result.showSessionTimer;
+          draft.compactMaxWidth = result.compactMaxWidth;
           draft.error = "";
         }),
       fail: (error) =>
         mutate((draft) => {
-          draft.error = error instanceof Error ? error.message : String(error);
+          draft.error = displayError(error);
         }),
     });
 
@@ -97,7 +112,7 @@ export default Plugin.define({
 
     createEffect(() => {
       request();
-      mutate((draft) => { draft.sidebar = { status: "loading", lines: [] }; draft.compact = { status: "loading", text: "" }; });
+      mutate((draft) => { draft.sidebar = EMPTY_PANEL; draft.compact = EMPTY_PANEL; draft.error = ""; });
       void refresher.refresh();
     });
     const interval = setInterval(() => void refresher.refresh(), REFRESH_INTERVAL_MS);
@@ -116,38 +131,74 @@ export default Plugin.define({
       context.data.on("credential.switched", () => debounced.trigger()),
     ];
 
+    const toneColor = (tone: QuotaTone) => tone === "muted" ? context.theme.text.muted : context.theme.text.feedback[tone].base;
+    const rows = () => buildSidebarRows(state.sidebar.entries, now());
     const removeSidebar = context.ui.slot({
       append: "sidebar.content",
       render: () => (
         <Show when={state.sidebar.status !== "disabled"}>
-          <box gap={0}>
+          <box gap={1} width="100%">
             <text fg={context.theme.text.base}>
               <b>Status</b>
             </text>
             <Show when={timer()}><text fg={context.theme.text.muted}>{`Elapsed ${timer()}`}</text></Show>
-            <Show when={state.error !== ""}>
-              <text fg={context.theme.text.muted} wrapMode="none">
-                {`unavailable: ${state.error}`}
+            <Show when={sidebarNotice(state.sidebar, state.error)}>
+              <text fg={state.error ? context.theme.text.feedback.warning.base : context.theme.text.muted} wrapMode="word">
+                {sidebarNotice(state.sidebar, state.error)}
               </text>
             </Show>
-            {state.sidebar.lines.map((line) => (
-              <text fg={context.theme.text.muted} wrapMode="none">
-                {line || " "}
-              </text>
+            <Show when={state.error}>
+              <text fg={context.theme.text.muted} wrapMode="word">{state.error}</text>
+            </Show>
+            {rows().map((row) =>
+              row.kind === "group" ? (
+                <text fg={context.theme.text.base} wrapMode="word">
+                  <b>{row.text}</b>
+                </text>
+              ) : (
+                <box gap={0} width="100%">
+                  <text fg={context.theme.text.base} wrapMode="word">{row.label}</text>
+                  <Show when={row.percent !== undefined}>
+                    <box flexDirection="row" gap={1}>
+                      <text flexShrink={0} fg={toneColor(row.quota?.tone ?? "muted")}>{bar(row.percent ?? 0, SIDEBAR_BAR_WIDTH)}</text>
+                      <text fg={toneColor(row.quota?.tone ?? "muted")} wrapMode="word">{row.percentLabel}</text>
+                    </box>
+                    <text fg={toneColor(row.quota?.tone ?? "muted")}>{row.quota?.label}</text>
+                  </Show>
+                  <Show when={row.value}><text fg={context.theme.text.base} wrapMode="word">{row.value}</text></Show>
+                  <Show when={row.details}><text fg={context.theme.text.muted} wrapMode="word">{row.details}</text></Show>
+                  <Show when={row.reset}><text fg={context.theme.text.muted} wrapMode="word">{row.reset === "reset" ? "Reset due" : `Resets in ${row.reset}`}</text></Show>
+                </box>
+              ),
+            )}
+            {state.sidebar.errors.map((error) => (
+              <box gap={0} width="100%">
+                <text fg={toneColor(error.retryable ? "warning" : "error")} wrapMode="word"><b>{error.label}</b>{error.retryable ? " · Retrying" : " · Unavailable"}</text>
+                <text fg={context.theme.text.muted} wrapMode="word">{providerErrorSummary(error)}</text>
+              </box>
             ))}
+            <Show when={state.sidebar.tokenUsage}>
+              <box gap={0}>
+                <text fg={context.theme.text.base}>Session tokens</text>
+                <text fg={context.theme.text.muted} wrapMode="word">{state.sidebar.tokenUsage ? `In ${formatTokenCount(state.sidebar.tokenUsage.input)} · Cache ${formatTokenCount(state.sidebar.tokenUsage.cachedInput)} · Out ${formatTokenCount(state.sidebar.tokenUsage.output)}` : ""}</text>
+              </box>
+            </Show>
           </box>
         </Show>
       ),
     });
 
-    const compact = () => (
-      <Show when={state.compact.status === "ready" && state.compact.text !== ""}>
-        <text fg={context.theme.text.muted} wrapMode="none">
-          {state.compact.text}
-          {timer() ? ` · ${timer()}` : ""}
-        </text>
-      </Show>
-    );
+    const compact = () => {
+      const text = buildCompactSummary(state.compact.entries, state.compactMaxWidth, now());
+      return (
+        <Show when={state.compact.status === "ready" && text !== ""}>
+          <text fg={context.theme.text.muted} wrapMode="none">
+            {text}
+            {timer() ? ` · ${timer()}` : ""}
+          </text>
+        </Show>
+      );
+    };
     const removePrompt = context.ui.slot({ append: "prompt.footer.status", render: (input) => input.sessionID ? compact() : null });
     const removeHome = context.ui.slot({ append: "home.footer.status", render: compact });
 

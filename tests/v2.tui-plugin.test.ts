@@ -11,19 +11,43 @@ import plugin from "../src/v2/tui.js";
 const cleanup: Array<() => void> = [];
 afterEach(() => { cleanup.splice(0).forEach((fn) => fn()); vi.useRealTimers(); });
 
-async function mount() {
+async function mount(route: "session" | "home" = "session") {
   vi.useFakeTimers();
   const commands: any[] = [];
   const slots: string[] = [];
   const listeners = new Map<string, Function>();
   const removeSlot = vi.fn();
-  const surfaces = vi.fn(async () => ({ sidebar: { status: "ready", lines: ["OpenAI 42%"] }, compact: { status: "ready", text: "OpenAI 42%" }, showSessionTimer: true }));
+  const surfaces = vi.fn(async () => ({
+    sidebar: {
+      status: "ready",
+      entries: [{ kind: "percent", name: "OpenAI", percentRemaining: 42, displayPercent: 42, displayUnit: "left" }],
+      errors: [],
+    },
+    compact: {
+      status: "ready",
+      entries: [{ kind: "percent", name: "OpenAI", percentRemaining: 42, displayPercent: 42, displayUnit: "left" }],
+      errors: [],
+    },
+    showSessionTimer: true,
+    compactMaxWidth: 96,
+  }));
   const toast = vi.fn(async () => ({ toast: { message: "quota", duration: 100 } }));
   const info = vi.fn(async () => ({ report: "diagnostics" }));
+  const details = vi.fn(async () => ({
+    generatedAt: 1000, selectedProviderID: "openai",
+    providers: [{ id: "openai", label: "OpenAI", enabled: true, available: true }],
+    panel: { status: "ready", entries: [], errors: [] },
+  }));
+  let activePanel: { name: string; sessionID: string } | undefined;
+  const panel = {
+    current: () => activePanel,
+    open: vi.fn((name: string) => { if (route === "home") return false; activePanel = { name, sessionID: "s1" }; return true; }),
+    close: vi.fn(() => { activePanel = undefined; }),
+  };
   const show = vi.fn();
   const dialog = { set: vi.fn(), show: vi.fn(), clear: vi.fn() };
   const context = {
-    client: { rpc: () => ({ surfaces, toast, info }) },
+    client: { rpc: () => ({ surfaces, toast, info, details }) },
     storage: { memory: (_: string, options: any) => {
       const state = structuredClone(options.initial);
       return [state, (fn: Function) => fn(state)];
@@ -36,20 +60,20 @@ async function mount() {
     },
     ui: {
       model: { current: () => ({ modelID: "gpt-5", providerID: "openai" }) },
-      router: { current: () => ({ type: "session", sessionID: "s1" }) },
+      router: { current: () => route === "session" ? ({ type: "session", sessionID: "s1" }) : ({ type: "home" }) },
       slot: (claim: any) => { slots.push(claim.append); return removeSlot; },
-      toast: { show }, dialog,
+      toast: { show }, dialog, panel,
     },
     keymap: { layer: (fn: Function) => commands.push(...fn().commands) },
   };
   const dispose = await plugin.setup(context as never);
   cleanup.push(dispose as () => void);
   await Promise.resolve(); await Promise.resolve();
-  return { commands, slots, listeners, surfaces, toast, info, show, dialog, removeSlot, dispose: dispose as () => void };
+  return { commands, slots, listeners, surfaces, toast, info, details, panel, show, dialog, removeSlot, dispose: dispose as () => void };
 }
 
 describe("v2 TUI contract (replaces legacy hook/command smoke tests)", () => {
-  it("registers native commands, the toast alias and the three additive slots", async () => {
+  it("registers native commands, the toast alias and three additive slots", async () => {
     const m = await mount();
     expect(m.commands.map((c) => c.slash.name)).toEqual(expect.arrayContaining(["status-provider", "status-provider-info"]));
     expect(m.commands.find((c) => c.id === "status-provider.show").slash.aliases).toContain("status-provider-toast");

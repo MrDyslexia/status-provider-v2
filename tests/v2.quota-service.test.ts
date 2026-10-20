@@ -1,10 +1,14 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { createQuotaService } from "../src/v2/quota-service.js";
 import { createV2StatusClient } from "../src/v2/client-shim.js";
 import { DEFAULT_CONFIG } from "../src/lib/types.js";
 import type { StatusProvider } from "../src/lib/entries.js";
 import { clearCache } from "../src/lib/cache.js";
+import { __resetStatusStateForTests } from "../src/lib/status-state.js";
 
 const client = createV2StatusClient({ listProviders: async () => [] });
 const roots = { fallbackDirectory: "/tmp/sp-v2-test" };
@@ -30,15 +34,76 @@ function service(providers: StatusProvider[], config = { ...DEFAULT_CONFIG }) {
   return createQuotaService({ client, roots, config, providers });
 }
 
-beforeEach(() => clearCache());
+let cacheDir: string;
+beforeEach(() => {
+  cacheDir = mkdtempSync(join(tmpdir(), "quota-service-"));
+  vi.stubEnv("XDG_CACHE_HOME", cacheDir);
+  __resetStatusStateForTests();
+  clearCache();
+});
+afterEach(() => rmSync(cacheDir, { recursive: true, force: true }));
 
 describe("quota service surfaces", () => {
-  it("renders sidebar lines from provider data", async () => {
+  it("keeps session tokens visible even when no quota providers are selected", async () => {
+    const svc = createQuotaService({
+      client, roots, config: { ...DEFAULT_CONFIG, enabledProviders: [], showSessionTokens: true }, providers: [],
+      sessionUsage: async () => ({ models: [], totalInput: 10, totalCachedInput: 20, totalOutput: 30 }),
+    });
+    const result = await svc.surfaces({ sessionID: "session" });
+    expect(result.sidebar.entries).toEqual([]);
+    expect(result.sidebar.tokenUsage).toEqual({ input: 10, cachedInput: 20, output: 30 });
+  });
+  it("retains session-token totals in the structured sidebar without forwarding extra fields", async () => {
+    const svc = createQuotaService({
+      client, roots, config: { ...DEFAULT_CONFIG, showSessionTokens: true }, providers: [fakeProvider("openai")],
+      sessionUsage: async () => ({ models: [], totalInput: 100, totalCachedInput: 25, totalOutput: 50, credential: "SECRET" }) as never,
+    });
+    const result = await svc.surfaces({ sessionID: "session" });
+    expect(result.sidebar.tokenUsage).toEqual({ input: 100, cachedInput: 25, output: 50 });
+    expect(JSON.stringify(result)).not.toContain("SECRET");
+  });
+  it("renders structured sidebar entries, not pre-rendered text", async () => {
     const result = await service([fakeProvider("openai")]).surfaces();
 
     expect(result.sidebar.status).toBe("ready");
-    expect(result.sidebar.lines.length).toBeGreaterThan(0);
-    expect(result.sidebar.lines.join("\n")).toContain("42");
+    expect(result.sidebar.entries).toHaveLength(1);
+    expect(result.sidebar.entries[0]).toMatchObject({
+      kind: "percent",
+      percentRemaining: 42,
+      displayPercent: 42,
+      displayUnit: "left",
+      resetTimeIso: "2030-01-01T00:00:00.000Z",
+    });
+  });
+
+  it("omits unset optional fields instead of sending them as undefined (RPC schema requires absence)", async () => {
+    // This entry has no group/label/right/resetTimeIso at all, matching real
+    // providers like opencode-go that only ever set name+percentRemaining.
+    const provider: StatusProvider = {
+      id: "bare",
+      isAvailable: async () => true,
+      fetch: async () => ({ attempted: true, entries: [{ name: "bare", percentRemaining: 10 }], errors: [] }),
+    };
+    const result = await service([provider]).surfaces();
+    const entry = result.sidebar.entries[0] as Record<string, unknown>;
+
+    // Regression guard: the real RPC output validator (over the
+    // actual HTTP transport) rejects a present-but-undefined `group` with
+    // "Expected string at [...][\"group\"]"; JSON.stringify alone would hide
+    // this (it silently drops undefined keys), so assert key *presence*.
+    for (const key of ["group", "label", "right", "resetTimeIso"]) {
+      expect(key in entry).toBe(false);
+    }
+  });
+
+  it("flips displayPercent/displayUnit per percentDisplayMode without changing percentRemaining", async () => {
+    const config = { ...DEFAULT_CONFIG, percentDisplayMode: "used" as const };
+    const result = await service([fakeProvider("openai")], config).surfaces();
+    const entry = result.sidebar.entries[0] as { percentRemaining: number; displayPercent: number; displayUnit: string };
+
+    expect(entry.percentRemaining).toBe(42);
+    expect(entry.displayPercent).toBe(58);
+    expect(entry.displayUnit).toBe("used");
   });
 
   it("renders the compact line for the active model's provider", async () => {
@@ -51,19 +116,42 @@ describe("quota service surfaces", () => {
       currentModel: "gpt-5",
     });
     expect(result.compact.status).toBe("ready");
+    expect(result.compact.entries).toHaveLength(1);
   });
 
-  it("only ever returns text, never credential-like data", async () => {
+  it("only ever returns structured data, never credential-like data", async () => {
     const result = await service([fakeProvider("openai")]).surfaces();
     expect(JSON.stringify(result)).not.toContain("SECRET");
   });
 
-  it("never serves anthropic", async () => {
+  it("preserves provider-ordered grouping and mixed value/percent entries", async () => {
+    const provider: StatusProvider & { fetch: ReturnType<typeof vi.fn> } = {
+      id: "multi",
+      isAvailable: async () => true,
+      fetch: vi.fn(async () => ({
+        attempted: true,
+        entries: [
+          { kind: "percent", name: "5h", group: "Claude", label: "5h:", percentRemaining: 70 },
+          { kind: "percent", name: "Weekly", group: "Claude", label: "Weekly:", percentRemaining: 30 },
+          { kind: "value", name: "OpenCode Go", value: "$4.20" },
+        ],
+        errors: [],
+      })),
+    };
+    // Default formatStyle keeps a single window per provider; request every window.
+    const result = await service([provider], { ...DEFAULT_CONFIG, formatStyle: "allWindows" }).surfaces();
+
+    expect(result.sidebar.entries.map((e) => e.group)).toEqual(["Claude", "Claude", undefined]);
+    expect(result.sidebar.entries[2]).toMatchObject({ kind: "value", value: "$4.20" });
+  });
+
+  it("replaces the legacy Anthropic wrapper with the native v2 adapter", async () => {
     const anthropic = fakeProvider("anthropic");
     const result = await service([anthropic, fakeProvider("openai")]).surfaces();
 
     expect(anthropic.fetch).not.toHaveBeenCalled();
-    expect(result.sidebar.lines.join("\n")).toContain("42");
+    expect(result.sidebar.entries).toHaveLength(1);
+    expect(result.sidebar.entries[0]).toMatchObject({ percentRemaining: 42 });
   });
 
   it("coalesces concurrent surface requests into a single poll", async () => {

@@ -8,6 +8,8 @@
 import type { CompactStatusState, SidebarPanelState } from "./tui-panel-state.js";
 import type { CollectStatusRenderDataResult } from "./status-render-data.js";
 import type { StatusRuntimeContext } from "./status-runtime-context.js";
+import type { StatusProviderEntry, StatusProviderError, SessionTokensData } from "./entries.js";
+import type { PercentDisplayMode } from "./types.js";
 
 import { createStatusRuntimeRequestContext } from "./status-runtime-context.js";
 import { collectStatusRenderData } from "./status-render-data.js";
@@ -15,6 +17,8 @@ import { resolveStatusFormatStyle } from "./status-format-style.js";
 import { buildCompactStatusStatusLine } from "./tui-compact-format.js";
 import { buildSidebarStatusPanelLines } from "./tui-sidebar-format.js";
 import { formatStatusRows } from "./format.js";
+import { clampPercent, resolveDisplayedPercent } from "./format-utils.js";
+import { sanitizeStatusRenderData } from "./display-sanitize.js";
 
 const COMPACT_UNAVAILABLE_TEXT = "Status unavailable";
 
@@ -225,4 +229,163 @@ export async function buildManualToast(runtime: StatusRuntimeContext, automatic 
   });
 
   return message.trim() ? { message, duration: runtime.config.toastDurationMs } : null;
+}
+
+// =============================================================================
+// Structured snapshot (data, not pre-rendered text)
+// =============================================================================
+//
+// The sidebar/compact text builders above apply the global textVariant /
+// providerNameVariant / percentVariant / colorVariant / alignmentVariant
+// settings, which only make sense for an ASCII-art text layout. The TUI now
+// renders its own panels from structured data (OpenTUI components, not
+// shipped strings), so those five settings no longer affect the TUI sidebar
+// or compact line; they remain supported by the legacy text formatters.
+//
+// percentDisplayMode is different: it's a value-semantics choice (does 73%
+// mean "73 left" or "73 used"), not a text-layout one, so it is still
+// resolved here and carried as `displayPercent`/`displayUnit`.
+
+export type StatusSnapshotEntry =
+  | {
+      kind: "percent";
+      name: string;
+      group?: string;
+      label?: string;
+      right?: string;
+      resetTimeIso?: string;
+      /** Raw remaining percent (0-100), independent of percentDisplayMode. Useful for color thresholds. */
+      percentRemaining: number;
+      /** Percent to render the bar/number as, already oriented per percentDisplayMode. */
+      displayPercent: number;
+      displayUnit: "left" | "used";
+    }
+  | {
+      kind: "value";
+      name: string;
+      group?: string;
+      label?: string;
+      right?: string;
+      resetTimeIso?: string;
+      value: string;
+    };
+
+export interface StatusSnapshotError {
+  label: string;
+  message: string;
+  retryable?: boolean;
+}
+
+export interface StatusPanelSnapshot {
+  status: "disabled" | "loading" | "ready";
+  entries: StatusSnapshotEntry[];
+  errors: StatusSnapshotError[];
+  tokenUsage?: { input: number; cachedInput: number; output: number };
+}
+
+export interface TuiSessionStatusSnapshot {
+  sidebar: StatusPanelSnapshot;
+  compact: StatusPanelSnapshot;
+  showSessionTimer: boolean;
+  /** tuiCompactStatus.maxWidth; the compact line's rendering width is config-owned. */
+  compactMaxWidth: number;
+}
+
+// Optional RPC schema fields must be absent, not present-with-undefined: an
+// `undefined` value survives object spreads/construction but fails the
+// JSON-schema-backed RPC output validator (it only tolerates a missing key).
+function optionalStrings<T extends Record<string, string | undefined>>(fields: T): Partial<T> {
+  const out: Partial<T> = {};
+  for (const key in fields) {
+    const value = fields[key];
+    if (value !== undefined) out[key] = value;
+  }
+  return out;
+}
+
+function toSnapshotEntry(entry: StatusProviderEntry, percentDisplayMode: PercentDisplayMode): StatusSnapshotEntry {
+  const base = { name: entry.name, ...optionalStrings({ group: entry.group, label: entry.label, right: entry.right, resetTimeIso: entry.resetTimeIso }) };
+  if (entry.kind === "value") return { ...base, kind: "value", value: entry.value };
+  const percentRemaining = clampPercent(entry.percentRemaining);
+  return {
+    ...base,
+    kind: "percent",
+    percentRemaining,
+    displayPercent: resolveDisplayedPercent(percentRemaining, percentDisplayMode),
+    displayUnit: percentDisplayMode === "used" ? "used" : "left",
+  };
+}
+
+function toSnapshotError(error: StatusProviderError): StatusSnapshotError {
+  return { label: error.label, message: error.message, ...(error.retryable !== undefined ? { retryable: error.retryable } : {}) };
+}
+
+export function toPanelSnapshot(params: {
+  enabled: boolean;
+  result?: CollectStatusRenderDataResult;
+  percentDisplayMode: PercentDisplayMode;
+  sessionTokens?: SessionTokensData | null;
+}): StatusPanelSnapshot {
+  if (!params.enabled) return { status: "disabled", entries: [], errors: [] };
+  if (params.result?.selection?.waitingForCurrentSelection) return { status: "loading", entries: [], errors: [] };
+
+  const data = params.result?.data ? sanitizeStatusRenderData(params.result.data) : null;
+  const tokens = params.sessionTokens !== undefined ? params.sessionTokens : data?.sessionTokens;
+  return {
+    status: "ready",
+    entries: (data?.entries ?? []).map((entry) => toSnapshotEntry(entry, params.percentDisplayMode)),
+    errors: (data?.errors ?? []).map(toSnapshotError),
+    ...(tokens ? { tokenUsage: {
+      input: tokens.totalInput,
+      cachedInput: tokens.totalCachedInput ?? 0,
+      output: tokens.totalOutput,
+    } } : {}),
+  };
+}
+
+/** Build the sidebar and compact snapshots (structured data) for an already-resolved runtime. */
+export async function buildSessionStatusSnapshot(runtime: StatusRuntimeContext): Promise<TuiSessionStatusSnapshot> {
+  const sidebarEnabled = isSessionSidebarEnabled(runtime);
+  const compactEnabled = isSessionCompactEnabled(runtime);
+
+  if (!sidebarEnabled && !compactEnabled) {
+    return {
+      sidebar: { status: "disabled", entries: [], errors: [] },
+      compact: { status: "disabled", entries: [], errors: [] },
+      showSessionTimer: false,
+      compactMaxWidth: runtime.config.tuiCompactStatus.maxWidth,
+    };
+  }
+
+  const compactRuntime = buildCompactOnlyCurrentModelRuntime(runtime);
+
+  const sidebarPromise = sidebarEnabled
+    ? collectTuiStatusRenderData({ runtime, request: createStatusRuntimeRequestContext(runtime) })
+    : undefined;
+
+  const compactPromise = !compactEnabled
+    ? undefined
+    : collectTuiStatusRenderData({
+        runtime: compactRuntime,
+        request: createStatusRuntimeRequestContext(compactRuntime),
+        surfaceExplicitProviderIssues: false,
+      });
+
+  const [sidebarCollected, compactCollected] = await Promise.all([sidebarPromise, compactPromise]);
+
+  return {
+    sidebar: toPanelSnapshot({
+      enabled: sidebarEnabled,
+      result: sidebarCollected?.result,
+      percentDisplayMode: runtime.config.percentDisplayMode,
+      sessionTokens: runtime.config.showSessionTokens ? runtime.sessionTokens : null,
+    }),
+    compact: toPanelSnapshot({
+      enabled: compactEnabled,
+      result: compactCollected?.result,
+      percentDisplayMode: runtime.config.percentDisplayMode,
+    }),
+    showSessionTimer: runtime.config.showSessionTimer,
+    compactMaxWidth: runtime.config.tuiCompactStatus.maxWidth,
+  };
 }

@@ -1,16 +1,17 @@
 /**
  * Server-side quota service.
  *
- * Owns provider polling and credential access. It reuses the provider
- * libraries and returns pre-rendered text surfaces (sidebar lines, compact
- * line, manual toast). Because only formatted text leaves the server, no
- * credential can reach a client, and config-driven formatting lives in one place.
+ * Owns provider polling and credential access. `surfaces()` returns
+ * structured per-entry data (not pre-rendered text), so the TUI draws its
+ * own panels; `toast()`/`info()` stay text since a host toast and a
+ * diagnostics report are inherently text. Only sanitized data leaves the
+ * server either way: no credential can reach a client.
  */
 
 import type { StatusProvider, SessionTokensData } from "../lib/entries.js";
 import type { RuntimeContextRootHints } from "../lib/config-file-utils.js";
 import type { StatusProviderConfig } from "../lib/types.js";
-import type { CompactStatusState, SidebarPanelState } from "../lib/tui-panel-state.js";
+import type { StatusPanelSnapshot } from "../lib/status-surfaces.js";
 import type { V2StatusClient } from "./client-shim.js";
 
 import { resolveStatusRuntimeContext } from "../lib/status-runtime-context.js";
@@ -19,7 +20,7 @@ import { getAuthCacheIdentity } from "../lib/auth-context.js";
 import { nativeAnthropicProvider } from "./anthropic.js";
 import {
   buildManualToast,
-  buildSessionStatusSurfaces,
+  buildSessionStatusSnapshot,
   shouldIncludeSessionMetaForSurfaces,
   type TuiManualToast,
 } from "../lib/status-surfaces.js";
@@ -37,10 +38,12 @@ export interface SurfaceRequest {
 
 export interface SurfacesResult {
   generatedAt: number;
-  sidebar: SidebarPanelState;
-  compact: CompactStatusState;
+  sidebar: StatusPanelSnapshot;
+  compact: StatusPanelSnapshot;
   showSessionTimer: boolean;
+  compactMaxWidth: number;
 }
+
 
 export interface ToastResult {
   generatedAt: number;
@@ -124,8 +127,8 @@ export function createQuotaService(deps: QuotaServiceDeps): QuotaService {
             ...runtime.config.tuiCompactStatus, sessionPrompt: runtime.config.tuiCompactStatus.homeBottom,
           } },
         } : runtime;
-        const surfaces = await buildSessionStatusSurfaces(surfaceRuntime);
-        return { generatedAt: now(), ...surfaces };
+        const snapshot = await buildSessionStatusSnapshot(surfaceRuntime);
+        return { generatedAt: now(), ...snapshot };
       });
     },
     toast(request = {}) {

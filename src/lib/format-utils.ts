@@ -203,6 +203,8 @@ export function boxWrapLines(lines: string[], innerWidth: number): string[] {
 }
 
 export interface FormatResetCountdownOptions {
+  /** Optional client clock for reactive countdowns and deterministic rendering. */
+  nowMs?: number;
   /**
    * String to return when ISO timestamp is missing/undefined.
    * - Classic toast uses "-"
@@ -227,8 +229,7 @@ export interface FormatResetCountdownOptions {
 export function formatResetCountdown(iso?: string, opts?: FormatResetCountdownOptions): string {
   if (!iso) return opts?.missing ?? "";
   const resetDate = new Date(iso);
-  const now = new Date();
-  const diffMs = resetDate.getTime() - now.getTime();
+  const diffMs = resetDate.getTime() - (opts?.nowMs ?? Date.now());
   if (!Number.isFinite(diffMs) || diffMs <= 0) return "reset";
 
   const diffMinutes = Math.floor(diffMs / 60000);
