@@ -18,6 +18,8 @@ import { displayError, providerErrorSummary, sidebarNotice, type QuotaTone } fro
 import { registerDetailPanel } from "./detail-panel.js";
 import type { SurfaceRequest } from "./quota-service.js";
 import { configureStatusProvider } from "./settings-tui.js";
+import type { ScrollBoxRenderable } from "@opentui/core";
+import { scrollCommands } from "./tui-scroll.js";
 import {
   StatusProviderRpc,
   type InfoWire,
@@ -241,15 +243,17 @@ export default Plugin.define({
               if (disposed) return;
               context.ui.dialog.set({ size: "large" });
               context.ui.dialog.show(() => {
+                let scroll: ScrollBoxRenderable | undefined;
+                const height = () => { now(); return Math.max(2, Math.min(18, context.renderer.height - 12)); };
                 context.keymap.layer(() => ({
                   mode: "global",
                   priority: 100,
-                  commands: [{ bind: "escape", run: () => context.ui.dialog.clear() }],
+                  commands: [...scrollCommands(() => scroll), { bind: "escape", run: () => context.ui.dialog.clear() }],
                 }));
                 return (
-                  <box gap={1}>
+                  <box gap={1} width="100%">
                     <text fg={context.theme.text.base}><b>Status Provider diagnostics</b></text>
-                    <scrollbox height={18} focused>
+                    <scrollbox ref={(node) => { scroll = node; }} height={height()} focused>
                       <text fg={context.theme.text.muted}>{result.report}</text>
                     </scrollbox>
                     <text fg={context.theme.text.muted}>Scroll to browse · Esc to close</text>
