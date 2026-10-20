@@ -1,5 +1,5 @@
 import type { LoadConfigMeta } from "./config.js";
-import type { StatusProvider, StatusProviderContext } from "./entries.js";
+import type { StatusProvider, StatusProviderContext, SessionTokensData } from "./entries.js";
 import type { StatusProviderConfig } from "./types.js";
 import type { RuntimeContextRootHints, RuntimeContextRoots } from "./config-file-utils.js";
 
@@ -28,6 +28,7 @@ export interface ResolveStatusRuntimeContextParams {
 }
 
 export interface StatusRuntimeContext {
+  sessionTokens?: SessionTokensData | null;
   client: StatusRuntimeClient;
   roots: RuntimeContextRoots;
   config: StatusProviderConfig;
@@ -88,14 +89,16 @@ export async function resolveStatusRuntimeContext(
 }
 
 export function createStatusRuntimeRequestContext(
-  runtime: Pick<StatusRuntimeContext, "session">,
+  runtime: Pick<StatusRuntimeContext, "session"> & Pick<StatusRuntimeContext, "sessionTokens">,
 ): {
   sessionID?: string;
   sessionMeta?: StatusSessionModelContext;
+  sessionTokens?: SessionTokensData | null;
 } {
   return {
     sessionID: runtime.session.sessionID,
     sessionMeta: runtime.session.sessionMeta,
+    ...("sessionTokens" in runtime ? { sessionTokens: runtime.sessionTokens ?? null } : {}),
   };
 }
 

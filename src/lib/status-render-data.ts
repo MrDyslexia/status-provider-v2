@@ -31,6 +31,8 @@ export type SessionModelMeta = {
 };
 
 export type StatusRequestContext = {
+  /** v2 server supplied usage; null explicitly prevents legacy SQLite lookup. */
+  sessionTokens?: SessionTokensData | null;
   sessionID?: string;
   sessionMeta?: SessionModelMeta;
 };
@@ -626,7 +628,9 @@ export async function collectStatusRenderData(params: {
 
   let sessionTokens: SessionTokensData | undefined;
   let sessionTokenError: SessionTokenError | undefined;
-  if (params.config.showSessionTokens && params.request?.sessionID) {
+  if (params.config.showSessionTokens && params.request && "sessionTokens" in params.request) {
+    sessionTokens = params.request.sessionTokens ?? undefined;
+  } else if (params.config.showSessionTokens && params.request?.sessionID) {
     const sessionTokenResult = await fetchSessionTokensForDisplay({
       enabled: params.config.showSessionTokens,
       sessionID: params.request.sessionID,
