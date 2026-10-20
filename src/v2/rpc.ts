@@ -88,6 +88,20 @@ const settingFieldSchema = {
 export const StatusProviderRpc = Rpc.define({
   id: "status-provider",
   methods: {
+    providerSelection: {
+      input: { type: "object", properties: {}, additionalProperties: false },
+      output: {
+        type: "object", properties: {
+          revision: { type: "string" }, readOnly: { type: "boolean" },
+          mode: { type: "string", enum: ["auto", "manual"] },
+          selected: { type: "array", items: { type: "string" } },
+          providers: { type: "array", items: {
+            type: "object", properties: { id: { type: "string" }, label: { type: "string" }, available: { type: "boolean" }, enabled: { type: "boolean" } },
+            required: ["id", "label", "available", "enabled"], additionalProperties: false,
+          } },
+        }, required: ["revision", "readOnly", "mode", "selected", "providers"], additionalProperties: false,
+      },
+    },
     settingsRead: {
       input: { type: "object", properties: {}, additionalProperties: false },
       output: {
@@ -243,4 +257,12 @@ export interface DetailsWire {
   selectedProviderID: string | null;
   providers: ProviderOptionWire[];
   panel: PanelSnapshotWire;
+}
+
+export interface ProviderSelectionWire {
+  revision: string;
+  readOnly: boolean;
+  mode: "auto" | "manual";
+  selected: string[];
+  providers: ProviderOptionWire[];
 }

@@ -3,7 +3,8 @@ vi.mock("@opencode/plugin/tui", () => ({ Plugin: { define: (p: unknown) => p } }
 vi.mock("solid-js", () => ({
   Show: () => null,
   createEffect: (fn: () => void) => fn(),
-  createSignal: (v: unknown) => [() => v, (next: unknown) => { v = next; }],
+  createSignal: (v: unknown) => [() => v, (next: unknown) => { v = typeof next === "function" ? next(v) : next; }],
+  onCleanup: () => {},
 }));
 vi.mock("@opentui/solid/jsx-runtime", () => ({ jsx: () => null, jsxs: () => null, Fragment: "fragment" }));
 import plugin from "../src/v2/tui.js";
@@ -75,7 +76,7 @@ async function mount(route: "session" | "home" = "session") {
 describe("v2 TUI contract (replaces legacy hook/command smoke tests)", () => {
   it("registers native commands, the toast alias and four additive slots", async () => {
     const m = await mount();
-    expect(m.commands.map((c) => c.slash.name)).toEqual(expect.arrayContaining(["status-provider", "status-provider-info"]));
+    expect(m.commands.map((c) => c.slash?.name)).toEqual(expect.arrayContaining(["status-provider", "status-provider-info", "status-provider-providers"]));
     expect(m.commands.find((c) => c.id === "status-provider.show").slash.aliases).toContain("status-provider-toast");
     expect(m.slots).toEqual(["sidebar.content", "prompt.footer.status", "home.footer.status", "session.panel"]);
     expect(m.surfaces).toHaveBeenCalledWith(expect.objectContaining({ sessionID: "s1", surface: "session" }), expect.objectContaining({ signal: expect.any(AbortSignal) }));

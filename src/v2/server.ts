@@ -78,6 +78,7 @@ export default Plugin.define({
       }, lifecycle.signal);
     };
     const registration = await ctx.rpc.register(StatusProviderRpc, {
+      providerSelection: async (_input, call) => run(call.signal, () => service.providerSelection()),
       settingsRead: async () => service.getSettings(),
       settingsSave: async (input, call) => {
         try {

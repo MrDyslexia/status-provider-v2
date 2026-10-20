@@ -18,10 +18,11 @@ import { resolveStatusRuntimeContext } from "../lib/status-runtime-context.js";
 import { buildV2InfoReport } from "./info-report.js";
 import { getAuthCacheIdentity } from "../lib/auth-context.js";
 import { nativeAnthropicProvider } from "./anthropic.js";
-import { buildProviderDetails } from "./detail-service.js";
-import type { DetailsWire } from "./rpc.js";
+import { buildProviderDetails, getProviderCatalog } from "./detail-service.js";
+import type { DetailsWire, ProviderSelectionWire } from "./rpc.js";
 import { createSettingsService } from "./settings-service.js";
 import type { SettingsSnapshot, SettingsUpdate } from "./settings-model.js";
+import { getOrderedProviders, getProviders } from "../providers/registry.js";
 import {
   buildManualToast,
   buildSessionStatusSnapshot,
@@ -67,6 +68,7 @@ export interface QuotaServiceDeps {
 }
 
 export interface QuotaService {
+  providerSelection(): Promise<ProviderSelectionWire>;
   getSettings(): Promise<SettingsSnapshot>;
   saveSettings(update: SettingsUpdate): Promise<void>;
   details(request?: DetailRequest): Promise<DetailsWire>;
@@ -81,8 +83,9 @@ export function createQuotaService(deps: QuotaServiceDeps): QuotaService {
   const now = deps.now ?? Date.now;
   const inFlight = new Map<string, Promise<unknown>>();
   let disposed = false;
+  let settingsRevision = 0;
 
-  async function resolveRuntime(request: SurfaceRequest, includeMeta: (config: StatusProviderConfig) => boolean, includeUsage = true) {
+  async function resolveRuntime(request: SurfaceRequest, includeMeta: (config: StatusProviderConfig) => boolean, includeUsage = true, catalog = false) {
     const sessionMeta =
       request.currentModel || request.currentProviderID
         ? { modelID: request.currentModel, providerID: request.currentProviderID }
@@ -98,15 +101,17 @@ export function createQuotaService(deps: QuotaServiceDeps): QuotaService {
       includeSessionMeta: includeMeta,
     });
     if (request.providerFilter) {
+      const enabled = runtime.config.enabledProviders === "auto" || runtime.config.enabledProviders.includes(request.providerFilter);
       runtime.providers = runtime.providers.filter((provider) => provider.id === request.providerFilter);
-      runtime.config = { ...runtime.config, enabledProviders: [request.providerFilter], onlyCurrentModel: false };
+      runtime.config = { ...runtime.config, enabledProviders: enabled ? [request.providerFilter] : [], onlyCurrentModel: false };
     }
 
     return {
       ...runtime,
       sessionTokens: includeUsage && request.sessionID && runtime.config.showSessionTokens && deps.sessionUsage
         ? await deps.sessionUsage(request.sessionID).catch(() => null) : null,
-      providers: runtime.providers.map((provider) => provider.id === "anthropic" ? nativeAnthropicProvider : provider),
+      providers: (catalog ? deps.providers ?? getOrderedProviders({ ...runtime.config, enabledProviders: getProviders().map((provider) => provider.id) }) : runtime.providers)
+        .map((provider) => provider.id === "anthropic" ? nativeAnthropicProvider : provider),
     };
   }
 
@@ -114,7 +119,7 @@ export function createQuotaService(deps: QuotaServiceDeps): QuotaService {
   function coalesce<T>(kind: string, request: SurfaceRequest, run: () => Promise<T>): Promise<T> {
     if (disposed) return Promise.reject(new Error("quota service disposed"));
 
-    const key = JSON.stringify([getAuthCacheIdentity(), kind, request.providerFilter, request.sessionID, request.surface, request.trigger, request.currentModel ?? "", request.currentProviderID ?? ""]);
+    const key = JSON.stringify([settingsRevision, getAuthCacheIdentity(), kind, request.providerFilter, request.sessionID, request.surface, request.trigger, request.currentModel ?? "", request.currentProviderID ?? ""]);
     const existing = inFlight.get(key) as Promise<T> | undefined;
     if (existing) return existing;
 
@@ -126,12 +131,25 @@ export function createQuotaService(deps: QuotaServiceDeps): QuotaService {
   }
 
   return {
+    async providerSelection() {
+      const runtime = await resolveRuntime({}, () => false, false, true);
+      const settings = await createSettingsService(() => resolveRuntime({}, () => false, false)).read();
+      const field = settings.fields.find((entry) => entry.key === "enabledProviders")!;
+      const mode = field.value === "auto" ? "auto" : "manual";
+      const providers = await getProviderCatalog(runtime);
+      return { revision: settings.revision, readOnly: field.readOnly, mode, providers,
+        selected: mode === "auto" ? providers.filter((provider) => provider.available && provider.enabled).map((provider) => provider.id) : [...field.value as string[]],
+      };
+    },
     getSettings: () => createSettingsService(() => resolveRuntime({}, () => false, false)).read(),
-    saveSettings: (update) => createSettingsService(() => resolveRuntime({}, () => false, false)).save(update),
+    async saveSettings(update) {
+      await createSettingsService(() => resolveRuntime({}, () => false, false)).save(update);
+      settingsRevision++;
+    },
     details(request = {}) {
       return coalesce(request.refresh ? "details.refresh" : "details", request, async () => {
         const { providerFilter, refresh, ...base } = request;
-        const runtime = await resolveRuntime(base, () => true, false);
+        const runtime = await resolveRuntime(base, () => true, false, true);
         return buildProviderDetails(runtime, { providerID: providerFilter, refresh, now: now() });
       });
     },

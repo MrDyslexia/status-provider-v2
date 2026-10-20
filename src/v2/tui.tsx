@@ -20,6 +20,7 @@ import type { SurfaceRequest } from "./quota-service.js";
 import { configureStatusProvider } from "./settings-tui.js";
 import type { ScrollBoxRenderable } from "@opentui/core";
 import { scrollCommands } from "./tui-scroll.js";
+import { createProviderMenu } from "./provider-menu.js";
 import {
   StatusProviderRpc,
   type InfoWire,
@@ -137,14 +138,17 @@ export default Plugin.define({
 
     const toneColor = (tone: QuotaTone) => tone === "muted" ? context.theme.text.muted : context.theme.text.feedback[tone].base;
     const rows = () => buildSidebarRows(state.sidebar.entries, now());
+    const providerMenu = createProviderMenu(context, rpc, () => {
+      mutate((draft) => { draft.sidebar = { ...draft.sidebar, status: "loading", entries: [], errors: [] }; draft.compact = EMPTY_PANEL; });
+      void refresher.refresh(); detailPanel.reload();
+    });
     const removeSidebar = context.ui.slot({
       append: "sidebar.content",
       render: () => (
         <Show when={state.sidebar.status !== "disabled"}>
           <box gap={1} width="100%">
-            <text fg={context.theme.text.base}>
-              <b>Status</b>
-            </text>
+            <providerMenu.Header />
+            <Show when={!providerMenu.expanded()}>
             <Show when={timer()}><text fg={context.theme.text.muted}>{`Elapsed ${timer()}`}</text></Show>
             <Show when={sidebarNotice(state.sidebar, state.error)}>
               <text fg={state.error ? context.theme.text.feedback.warning.base : context.theme.text.muted} wrapMode="word">
@@ -187,6 +191,7 @@ export default Plugin.define({
                 <text fg={context.theme.text.muted} wrapMode="word">{state.sidebar.tokenUsage ? `In ${formatTokenCount(state.sidebar.tokenUsage.input)} · Cache ${formatTokenCount(state.sidebar.tokenUsage.cachedInput)} · Out ${formatTokenCount(state.sidebar.tokenUsage.output)}` : ""}</text>
               </box>
             </Show>
+            </Show>
           </box>
         </Show>
       ),
@@ -212,13 +217,19 @@ export default Plugin.define({
       mode: "global",
       commands: [
         {
+          id: "status-provider.providers", title: "Status Provider: choose tracked providers", group: "Status Provider", palette: true,
+          slash: { name: "status-provider-providers" },
+          enabled: () => context.ui.router.current().type === "session" && state.sidebar.status !== "disabled",
+          run: () => providerMenu.open(),
+        },
+        {
           id: "status-provider.config", title: "Status Provider: settings", group: "Status Provider", palette: true,
           slash: { name: "status-provider-config" },
           run: async () => {
             if (configuring) return;
             configuring = true;
             try {
-              await configureStatusProvider(context, rpc, lifetime.signal, () => { void refresher.refresh(); detailPanel.reload(); });
+              await configureStatusProvider(context, rpc, lifetime.signal, () => { void refresher.refresh(); detailPanel.reload(); providerMenu.reload(); });
             } catch (error) {
               if (!disposed) context.ui.toast.show({ message: displayError(error), variant: "error" });
             } finally { configuring = false; }
@@ -283,6 +294,7 @@ export default Plugin.define({
       if (disposed) return;
       disposed = true;
       lifetime.abort();
+      providerMenu.dispose();
       detailPanel.dispose();
       clearInterval(timerInterval);
       refresher.dispose();

@@ -34,6 +34,7 @@ Requires Node 22+ for the CLI/build and Bun 1.3.4+ for development. SDK packages
 | `/status-provider-info` | Scrollable diagnostics: effective settings, availability and provider errors. |
 | `/status-provider-details` | Open the native provider panel in an existing session. |
 | `/status-provider-config` | Edit settings in native dialogs; save explicitly or discard with Esc. |
+| `/status-provider-providers` | Open the tracked-provider dropdown when the session sidebar is visible. |
 
 These commands do not create chat turns. The compiled CLI also supports `node dist/bin/status-provider.js show [--provider <id>]` against a running local v2 service, and `config` for the terminal wizard. `init`/`update` target the v2 package; registry installation/update requires a published release.
 
@@ -53,6 +54,10 @@ Open a session before running `/status-provider-details`.
 The panel shows all quota windows even when the sidebar uses `singleWindow`. Only the selected enabled provider is polled; disconnected and disabled providers have explicit states.
 
 ## Settings and presentation
+
+Click **Status ▾** in the sidebar to expand the provider list. Click a checkbox, or navigate with Up/Down and toggle with Space/Enter. Each change immediately saves the existing global `enabledProviders` setting: unchecked providers stop being queried by the plugin's sidebar, toasts, details and CLI. This does not disable their models in OpenCode. Esc or clicking outside closes the dropdown.
+
+**Auto-detect** restores automatic provider selection. Opening the menu only reads availability/selection metadata, not quota endpoints. Unchecked providers remain listed so they can be enabled again. If the sidebar is hidden, use `/status-provider-config` instead.
 
 `/status-provider-config` edits the same `<config-root>/status-provider/config.json` used by the CLI. It exposes provider selection/order, percentage semantics, sidebar and compact visibility, session counters, toasts, timing and provider-specific options.
 

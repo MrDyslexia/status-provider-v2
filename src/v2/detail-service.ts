@@ -1,26 +1,34 @@
 import { collectStatusRenderData } from "../lib/status-render-data.js";
 import { createStatusProviderRuntimeContext, createStatusRuntimeRequestContext, type StatusRuntimeContext } from "../lib/status-runtime-context.js";
 import { toPanelSnapshot } from "../lib/status-surfaces.js";
-import { getStatusProviderDisplayLabel } from "../lib/provider-metadata.js";
-import type { DetailsWire } from "./rpc.js";
+import { getStatusProviderDisplayLabel, normalizeStatusProviderId } from "../lib/provider-metadata.js";
+import type { DetailsWire, ProviderOptionWire } from "./rpc.js";
 import { expandIds } from "./provider-ids.js";
 
-/** Availability discovery is local; only the selected enabled provider is polled. */
-export async function buildProviderDetails(runtime: StatusRuntimeContext, options: {
-  providerID?: string; refresh?: boolean; now: number;
-}): Promise<DetailsWire> {
+/** Discover configuration/credentials without invoking a provider quota fetch. */
+export async function getProviderCatalog(runtime: StatusRuntimeContext): Promise<ProviderOptionWire[]> {
   const fullRuntime = { ...runtime, config: { ...runtime.config, onlyCurrentModel: false } };
   const ctx = createStatusProviderRuntimeContext(fullRuntime);
-  const providers = await Promise.all(runtime.providers.map(async (provider) => {
+  const autoIds = new Set((runtime.config.providerOrder.length ? runtime.config.providerOrder : runtime.providers.map((provider) => provider.id)).map(normalizeStatusProviderId));
+  return Promise.all(runtime.providers.map(async (provider) => {
     let available = false;
     try { available = await provider.isAvailable(ctx); } catch { /* An unavailable provider must not break the picker. */ }
     return {
       id: provider.id,
       label: getStatusProviderDisplayLabel(provider.id),
       available,
-      enabled: runtime.config.enabled && (runtime.config.enabledProviders === "auto" || runtime.config.enabledProviders.includes(provider.id)),
+      enabled: runtime.config.enabled && (runtime.config.enabledProviders === "auto" ? autoIds.has(normalizeStatusProviderId(provider.id))
+        : runtime.config.enabledProviders.some((id) => normalizeStatusProviderId(id) === normalizeStatusProviderId(provider.id))),
     };
   }));
+}
+
+/** Availability discovery is local; only the selected enabled provider is polled. */
+export async function buildProviderDetails(runtime: StatusRuntimeContext, options: {
+  providerID?: string; refresh?: boolean; now: number;
+}): Promise<DetailsWire> {
+  const fullRuntime = { ...runtime, config: { ...runtime.config, onlyCurrentModel: false } };
+  const providers = await getProviderCatalog(runtime);
   const current = runtime.session.sessionMeta?.providerID;
   const currentIds = current ? expandIds(current) : [];
   const selected = options.providerID ? providers.find((p) => p.id === options.providerID)
