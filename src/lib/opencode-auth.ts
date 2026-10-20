@@ -8,6 +8,7 @@
 
 import { readFile } from "fs/promises";
 import { join } from "path";
+import { scopedAuth } from "./auth-context.js";
 
 import { getOpencodeRuntimeDirCandidates, getOpencodeRuntimeDirs } from "./opencode-runtime-paths.js";
 
@@ -22,6 +23,34 @@ type AuthCacheEntry = {
 };
 
 let authCache: AuthCacheEntry | null = null;
+
+/**
+ * Pluggable credential source.
+ *
+ * OpenCode v2 stores credentials in its own database and exposes them through
+ * the plugin SDK instead of an `auth.json` file. The server plugin registers a
+ * source here so every provider keeps reading a v1-shaped `AuthData` without
+ * touching the filesystem. When a source is registered, files are never read.
+ */
+export type AuthSource = () => Promise<AuthData | null>;
+
+let authSource: AuthSource | null = null;
+
+export function withAuthSource<T>(source: AuthSource, identity: string, run: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+  return scopedAuth.run({ source, identity, signal }, run);
+}
+
+export { getAuthCacheIdentity, getAuthRequestSignal } from "./auth-context.js";
+
+export function setAuthSource(source: AuthSource | null): void {
+  authSource = source;
+  authCache = null;
+}
+
+/** Unregister `source` only if it is still the active one (safe with several plugin instances). */
+export function clearAuthSource(source: AuthSource): void {
+  if (authSource === source) setAuthSource(null);
+}
 
 /**
  * Get candidate auth.json paths in priority order.
@@ -42,6 +71,16 @@ export function getAuthPath(): string {
 }
 
 export async function readAuthFile(): Promise<AuthData | null> {
+  const scoped = scopedAuth.getStore();
+  if (scoped) return scoped.source();
+  if (authSource) {
+    try {
+      return await authSource();
+    } catch {
+      return null;
+    }
+  }
+
   const paths = getAuthPaths();
 
   for (const path of paths) {
@@ -61,6 +100,7 @@ export async function readAuthFile(): Promise<AuthData | null> {
  * This avoids repeated filesystem reads while keeping auth updates visible quickly.
  */
 export async function readAuthFileCached(params?: { maxAgeMs?: number }): Promise<AuthData | null> {
+  if (scopedAuth.getStore()) return readAuthFile();
   const maxAgeMs = Math.max(0, params?.maxAgeMs ?? DEFAULT_AUTH_CACHE_MAX_AGE_MS);
   const now = Date.now();
 
