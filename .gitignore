@@ -42,3 +42,5 @@ AGENTS.md
 /status-provider
 validation/sandbox-state/
 validation/*/sandbox-state/
+
+validation-v2/

@@ -27,8 +27,41 @@ vi.mock("node:child_process", async () => {
         }
 
         await fs.mkdir(destinationPath, { recursive: true });
-        const fixtureRoot = pathModule.join(process.cwd(), "references", "upstream-plugins", pluginId);
-        await fs.cp(fixtureRoot, destinationPath, { recursive: true });
+        // Synthetic tarball payloads keep this test hermetic: no vendored v1 plugins required.
+        const pkg = { name: pluginId === "opencode-cursor-oauth" ? "@playwo/opencode-cursor-oauth" : pluginId, version: "2.0.0" };
+        await fs.writeFile(pathModule.join(destinationPath, "package.json"), JSON.stringify(pkg, null, 2));
+        const files: Record<string, string> = pluginId === "opencode-antigravity-auth"
+          ? {
+              "dist/src/constants.js": 'export const ANTIGRAVITY_CLIENT_ID = "test.apps.googleusercontent.com";\nexport const ANTIGRAVITY_CLIENT_SECRET = "test-secret";',
+              "dist/src/constants.d.ts": 'export declare const ANTIGRAVITY_CLIENT_ID = "test.apps.googleusercontent.com";\nexport declare const ANTIGRAVITY_CLIENT_SECRET = "test-secret";',
+            }
+          : pluginId === "opencode-gemini-auth"
+            ? { "dist/index.js": 'var GEMINI_CLIENT_ID = "test.apps.googleusercontent.com";\nvar GEMINI_CLIENT_SECRET = "test-secret";' }
+            : pluginId === "opencode-cursor-oauth"
+              ? {
+                  "dist/models.js": "if (discovered && discovered.length > 0) { cachedModels = discovered; return cachedModels; } return FALLBACK_MODELS;",
+                  "dist/proxy.js": `function deriveBridgeKey(modelId, messages) {
+ const normalizedMessages = normalizeConversationMessages(messages);
+ return createHash("sha256")
+ .update(JSON.stringify({ modelId, messages: normalizedMessages, }))
+ .digest("hex")
+ .slice(0, 16);
+}
+/** Derive a key for conversation state. Model-independent so context survives model switches. */
+function deriveConversationKey(messages) {
+ const normalizedMessages = normalizeConversationMessages(messages);
+ return createHash("sha256")
+ .update(JSON.stringify({ messages: normalizedMessages, }))
+ .digest("hex")
+ .slice(0, 16);
+}`,
+                }
+              : {};
+        for (const [name, source] of Object.entries(files)) {
+          const target = pathModule.join(destinationPath, name);
+          await fs.mkdir(pathModule.dirname(target), { recursive: true });
+          await fs.writeFile(target, source);
+        }
         callback(null);
       })().catch((error) => callback(error as Error));
     }) as any,
