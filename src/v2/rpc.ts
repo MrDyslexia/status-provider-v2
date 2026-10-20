@@ -68,9 +68,46 @@ const panelSnapshotSchema = {
   additionalProperties: false,
 } as const;
 
+const settingValueSchema = { anyOf: [
+  { type: "boolean" }, { type: "number" }, { type: "string" }, { type: "null" },
+  { type: "array", items: { type: "string" } },
+] } as const;
+const settingFieldSchema = {
+  type: "object",
+  properties: {
+    key: { type: "string" }, label: { type: "string" }, group: { type: "string" },
+    kind: { type: "string", enum: ["boolean", "number", "select", "multi", "providers", "order"] },
+    options: { type: "array", items: { type: "string" } },
+    value: settingValueSchema, readOnly: { type: "boolean" },
+    minimum: { type: "number" }, maximum: { type: "number" }, nullable: { type: "boolean" },
+  },
+  required: ["key", "label", "group", "kind", "value", "options", "readOnly"],
+  additionalProperties: false,
+} as const;
+
 export const StatusProviderRpc = Rpc.define({
   id: "status-provider",
   methods: {
+    settingsRead: {
+      input: { type: "object", properties: {}, additionalProperties: false },
+      output: {
+        type: "object", properties: { path: { type: "string" }, revision: { type: "string" }, fields: { type: "array", items: settingFieldSchema } },
+        required: ["path", "revision", "fields"], additionalProperties: false,
+      },
+    },
+    settingsSave: {
+      input: {
+        type: "object", properties: {
+          revision: { type: "string" },
+          changes: { type: "array", maxItems: 100, items: {
+            type: "object", properties: { key: { type: "string" }, value: settingValueSchema },
+            required: ["key", "value"], additionalProperties: false,
+          } },
+        }, required: ["revision", "changes"], additionalProperties: false,
+      },
+      output: { type: "object", properties: { saved: { type: "boolean" } }, required: ["saved"], additionalProperties: false },
+      errors: { settings_error: { type: "null" } },
+    },
     details: {
       input: { ...requestSchema, properties: { ...requestSchema.properties, refresh: { type: "boolean" } } },
       output: {

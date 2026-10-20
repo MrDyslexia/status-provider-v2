@@ -18,6 +18,7 @@ import { summarizeSessionUsage } from "./session-usage.js";
 import { waitForResult } from "./tui-controller.js";
 import { recordLocalCompletion } from "./local-usage.js";
 import { loadConfig } from "../lib/config.js";
+import type { SettingsUpdate } from "./settings-model.js";
 
 export const PLUGIN_ID = "status-provider";
 
@@ -77,6 +78,16 @@ export default Plugin.define({
       }, lifecycle.signal);
     };
     const registration = await ctx.rpc.register(StatusProviderRpc, {
+      settingsRead: async () => service.getSettings(),
+      settingsSave: async (input, call) => {
+        try {
+          call.signal.throwIfAborted();
+          await service.saveSettings(input as SettingsUpdate);
+          return { saved: true };
+        } catch (error) {
+          return call.error("settings_error", error instanceof Error ? error.message : "Could not save settings", null);
+        }
+      },
       details: async (input, call) => run(call.signal, () => service.details((input ?? {}) as DetailRequest)),
       surfaces: async (input, call) => run(call.signal, () => service.surfaces((input ?? {}) as SurfaceRequest)),
       toast: async (input, call) => run(call.signal, () => service.toast((input ?? {}) as SurfaceRequest)),

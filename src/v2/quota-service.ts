@@ -20,6 +20,8 @@ import { getAuthCacheIdentity } from "../lib/auth-context.js";
 import { nativeAnthropicProvider } from "./anthropic.js";
 import { buildProviderDetails } from "./detail-service.js";
 import type { DetailsWire } from "./rpc.js";
+import { createSettingsService } from "./settings-service.js";
+import type { SettingsSnapshot, SettingsUpdate } from "./settings-model.js";
 import {
   buildManualToast,
   buildSessionStatusSnapshot,
@@ -65,6 +67,8 @@ export interface QuotaServiceDeps {
 }
 
 export interface QuotaService {
+  getSettings(): Promise<SettingsSnapshot>;
+  saveSettings(update: SettingsUpdate): Promise<void>;
   details(request?: DetailRequest): Promise<DetailsWire>;
   surfaces(request?: SurfaceRequest): Promise<SurfacesResult>;
   /** Manual `/status-provider` toast; bypasses the provider cache. */
@@ -122,6 +126,8 @@ export function createQuotaService(deps: QuotaServiceDeps): QuotaService {
   }
 
   return {
+    getSettings: () => createSettingsService(() => resolveRuntime({}, () => false, false)).read(),
+    saveSettings: (update) => createSettingsService(() => resolveRuntime({}, () => false, false)).save(update),
     details(request = {}) {
       return coalesce(request.refresh ? "details.refresh" : "details", request, async () => {
         const { providerFilter, refresh, ...base } = request;

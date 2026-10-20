@@ -17,6 +17,7 @@ import { buildCompactSummary, buildSidebarRows } from "./snapshot-format.js";
 import { displayError, providerErrorSummary, sidebarNotice, type QuotaTone } from "./sidebar-presentation.js";
 import { registerDetailPanel } from "./detail-panel.js";
 import type { SurfaceRequest } from "./quota-service.js";
+import { configureStatusProvider } from "./settings-tui.js";
 import {
   StatusProviderRpc,
   type InfoWire,
@@ -203,10 +204,24 @@ export default Plugin.define({
     const removePrompt = context.ui.slot({ append: "prompt.footer.status", render: (input) => input.sessionID ? compact() : null });
     const removeHome = context.ui.slot({ append: "home.footer.status", render: compact });
     const detailPanel = registerDetailPanel(context, rpc, request, () => { void refresher.refresh(); });
+    let configuring = false;
 
     context.keymap.layer(() => ({
       mode: "global",
       commands: [
+        {
+          id: "status-provider.config", title: "Status Provider: settings", group: "Status Provider", palette: true,
+          slash: { name: "status-provider-config" },
+          run: async () => {
+            if (configuring) return;
+            configuring = true;
+            try {
+              await configureStatusProvider(context, rpc, lifetime.signal, () => { void refresher.refresh(); detailPanel.reload(); });
+            } catch (error) {
+              if (!disposed) context.ui.toast.show({ message: displayError(error), variant: "error" });
+            } finally { configuring = false; }
+          },
+        },
         {
           id: "status-provider.details", title: "Status Provider: provider quotas", group: "Status Provider", palette: true,
           slash: { name: "status-provider-details" }, run: () => detailPanel.open(),
