@@ -71,6 +71,24 @@ const panelSnapshotSchema = {
 export const StatusProviderRpc = Rpc.define({
   id: "status-provider",
   methods: {
+    details: {
+      input: { ...requestSchema, properties: { ...requestSchema.properties, refresh: { type: "boolean" } } },
+      output: {
+        type: "object",
+        properties: {
+          generatedAt: { type: "number" },
+          selectedProviderID: { anyOf: [{ type: "string" }, { type: "null" }] },
+          providers: { type: "array", items: {
+            type: "object",
+            properties: { id: { type: "string" }, label: { type: "string" }, available: { type: "boolean" }, enabled: { type: "boolean" } },
+            required: ["id", "label", "available", "enabled"], additionalProperties: false,
+          } },
+          panel: panelSnapshotSchema,
+        },
+        required: ["generatedAt", "selectedProviderID", "providers", "panel"],
+        additionalProperties: false,
+      },
+    },
     info: {
       input: requestSchema,
       output: {
@@ -174,4 +192,18 @@ export interface ToastWire {
 
 export interface InfoWire {
   report: string;
+}
+
+export interface ProviderOptionWire {
+  id: string;
+  label: string;
+  available: boolean;
+  enabled: boolean;
+}
+
+export interface DetailsWire {
+  generatedAt: number;
+  selectedProviderID: string | null;
+  providers: ProviderOptionWire[];
+  panel: PanelSnapshotWire;
 }

@@ -18,6 +18,8 @@ import { resolveStatusRuntimeContext } from "../lib/status-runtime-context.js";
 import { buildV2InfoReport } from "./info-report.js";
 import { getAuthCacheIdentity } from "../lib/auth-context.js";
 import { nativeAnthropicProvider } from "./anthropic.js";
+import { buildProviderDetails } from "./detail-service.js";
+import type { DetailsWire } from "./rpc.js";
 import {
   buildManualToast,
   buildSessionStatusSnapshot,
@@ -44,6 +46,7 @@ export interface SurfacesResult {
   compactMaxWidth: number;
 }
 
+export interface DetailRequest extends SurfaceRequest { refresh?: boolean }
 
 export interface ToastResult {
   generatedAt: number;
@@ -62,6 +65,7 @@ export interface QuotaServiceDeps {
 }
 
 export interface QuotaService {
+  details(request?: DetailRequest): Promise<DetailsWire>;
   surfaces(request?: SurfaceRequest): Promise<SurfacesResult>;
   /** Manual `/status-provider` toast; bypasses the provider cache. */
   toast(request?: SurfaceRequest): Promise<ToastResult>;
@@ -74,7 +78,7 @@ export function createQuotaService(deps: QuotaServiceDeps): QuotaService {
   const inFlight = new Map<string, Promise<unknown>>();
   let disposed = false;
 
-  async function resolveRuntime(request: SurfaceRequest, includeMeta: (config: StatusProviderConfig) => boolean) {
+  async function resolveRuntime(request: SurfaceRequest, includeMeta: (config: StatusProviderConfig) => boolean, includeUsage = true) {
     const sessionMeta =
       request.currentModel || request.currentProviderID
         ? { modelID: request.currentModel, providerID: request.currentProviderID }
@@ -96,7 +100,7 @@ export function createQuotaService(deps: QuotaServiceDeps): QuotaService {
 
     return {
       ...runtime,
-      sessionTokens: request.sessionID && runtime.config.showSessionTokens && deps.sessionUsage
+      sessionTokens: includeUsage && request.sessionID && runtime.config.showSessionTokens && deps.sessionUsage
         ? await deps.sessionUsage(request.sessionID).catch(() => null) : null,
       providers: runtime.providers.map((provider) => provider.id === "anthropic" ? nativeAnthropicProvider : provider),
     };
@@ -118,6 +122,13 @@ export function createQuotaService(deps: QuotaServiceDeps): QuotaService {
   }
 
   return {
+    details(request = {}) {
+      return coalesce(request.refresh ? "details.refresh" : "details", request, async () => {
+        const { providerFilter, refresh, ...base } = request;
+        const runtime = await resolveRuntime(base, () => true, false);
+        return buildProviderDetails(runtime, { providerID: providerFilter, refresh, now: now() });
+      });
+    },
     surfaces(request = {}) {
       return coalesce("surfaces", request, async () => {
         const runtime = await resolveRuntime(request, shouldIncludeSessionMetaForSurfaces);

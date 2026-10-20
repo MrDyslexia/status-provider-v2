@@ -15,6 +15,7 @@ import { bar, formatTokenCount } from "../lib/format-utils.js";
 import { createDebounced, createRefresher } from "./tui-controller.js";
 import { buildCompactSummary, buildSidebarRows } from "./snapshot-format.js";
 import { displayError, providerErrorSummary, sidebarNotice, type QuotaTone } from "./sidebar-presentation.js";
+import { registerDetailPanel } from "./detail-panel.js";
 import type { SurfaceRequest } from "./quota-service.js";
 import {
   StatusProviderRpc,
@@ -201,10 +202,15 @@ export default Plugin.define({
     };
     const removePrompt = context.ui.slot({ append: "prompt.footer.status", render: (input) => input.sessionID ? compact() : null });
     const removeHome = context.ui.slot({ append: "home.footer.status", render: compact });
+    const detailPanel = registerDetailPanel(context, rpc, request, () => { void refresher.refresh(); });
 
     context.keymap.layer(() => ({
       mode: "global",
       commands: [
+        {
+          id: "status-provider.details", title: "Status Provider: provider quotas", group: "Status Provider", palette: true,
+          slash: { name: "status-provider-details" }, run: () => detailPanel.open(),
+        },
         {
           id: "status-provider.info",
           title: "Status Provider: diagnostics",
@@ -258,6 +264,7 @@ export default Plugin.define({
       if (disposed) return;
       disposed = true;
       lifetime.abort();
+      detailPanel.dispose();
       clearInterval(timerInterval);
       refresher.dispose();
       debounced.cancel();

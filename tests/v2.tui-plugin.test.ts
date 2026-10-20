@@ -73,11 +73,11 @@ async function mount(route: "session" | "home" = "session") {
 }
 
 describe("v2 TUI contract (replaces legacy hook/command smoke tests)", () => {
-  it("registers native commands, the toast alias and three additive slots", async () => {
+  it("registers native commands, the toast alias and four additive slots", async () => {
     const m = await mount();
     expect(m.commands.map((c) => c.slash.name)).toEqual(expect.arrayContaining(["status-provider", "status-provider-info"]));
     expect(m.commands.find((c) => c.id === "status-provider.show").slash.aliases).toContain("status-provider-toast");
-    expect(m.slots).toEqual(["sidebar.content", "prompt.footer.status", "home.footer.status"]);
+    expect(m.slots).toEqual(["sidebar.content", "prompt.footer.status", "home.footer.status", "session.panel"]);
     expect(m.surfaces).toHaveBeenCalledWith(expect.objectContaining({ sessionID: "s1", surface: "session" }), expect.objectContaining({ signal: expect.any(AbortSignal) }));
   });
   it("shows manual quota through RPC without a prompt/chat API", async () => {
@@ -99,7 +99,7 @@ describe("v2 TUI contract (replaces legacy hook/command smoke tests)", () => {
     expect(m.toast).toHaveBeenCalledWith(expect.objectContaining({ trigger: "idle" }), expect.anything());
     m.dispose();
     expect(m.listeners.size).toBe(0);
-    expect(m.removeSlot).toHaveBeenCalledTimes(3);
+    expect(m.removeSlot).toHaveBeenCalledTimes(4);
   });
   it("does not show a late toast after plugin disposal", async () => {
     const m = await mount();
@@ -109,6 +109,30 @@ describe("v2 TUI contract (replaces legacy hook/command smoke tests)", () => {
     m.dispose();
     resolve({ toast: { message: "late", duration: 1 } });
     await pending;
+    expect(m.show).not.toHaveBeenCalled();
+  });
+  it("opens the native detail panel and requests only its session's details without chat", async () => {
+    const m = await mount();
+    await m.commands.find((c) => c.id === "status-provider.details").run();
+    expect(m.panel.open).toHaveBeenCalledWith("status-provider.quotas");
+    expect(m.details).toHaveBeenCalledWith(expect.objectContaining({ sessionID: "s1", refresh: false }), expect.objectContaining({ signal: expect.any(AbortSignal) }));
+  });
+  it("does not open a session panel or poll providers from home", async () => {
+    const m = await mount("home");
+    await m.commands.find((c) => c.id === "status-provider.details").run();
+    expect(m.details).not.toHaveBeenCalled();
+    expect(m.show).toHaveBeenCalledWith(expect.objectContaining({ message: "Open a session to view provider quotas." }));
+  });
+  it("aborts a pending details subscriber when the TUI plugin is disposed", async () => {
+    const m = await mount();
+    let finish!: (value: any) => void;
+    m.details.mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+    await m.commands.find((c) => c.id === "status-provider.details").run();
+    const signal = (m.details.mock.calls[0] as unknown as [unknown, { signal: AbortSignal }])[1].signal;
+    m.dispose();
+    expect(signal.aborted).toBe(true);
+    finish({ generatedAt: 0, selectedProviderID: null, providers: [], panel: { status: "ready", entries: [], errors: [] } });
+    await Promise.resolve();
     expect(m.show).not.toHaveBeenCalled();
   });
 });

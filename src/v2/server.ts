@@ -12,7 +12,7 @@ import { createHash } from "node:crypto";
 import { withAuthSource } from "../lib/opencode-auth.js";
 import { buildAuthData } from "./auth-adapter.js";
 import { createV2StatusClient } from "./client-shim.js";
-import { createQuotaService, type SurfaceRequest } from "./quota-service.js";
+import { createQuotaService, type DetailRequest, type SurfaceRequest } from "./quota-service.js";
 import { StatusProviderRpc } from "./rpc.js";
 import { summarizeSessionUsage } from "./session-usage.js";
 import { waitForResult } from "./tui-controller.js";
@@ -77,6 +77,7 @@ export default Plugin.define({
       }, lifecycle.signal);
     };
     const registration = await ctx.rpc.register(StatusProviderRpc, {
+      details: async (input, call) => run(call.signal, () => service.details((input ?? {}) as DetailRequest)),
       surfaces: async (input, call) => run(call.signal, () => service.surfaces((input ?? {}) as SurfaceRequest)),
       toast: async (input, call) => run(call.signal, () => service.toast((input ?? {}) as SurfaceRequest)),
       info: async (input, call) => run(call.signal, () => service.info((input ?? {}) as SurfaceRequest)),
