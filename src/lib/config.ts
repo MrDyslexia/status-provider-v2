@@ -43,6 +43,7 @@ export const STATUS_PROVIDER_SETTING_SOURCE_KEYS = [
   "percentVariant",
   "colorVariant",
   "alignmentVariant",
+  "toastTextVariant", "toastProviderNameVariant", "toastPercentVariant", "toastColorVariant", "toastAlignmentVariant",
   "anthropicBinaryPath",
   "googleModels",
   "alibabaCodingPlanTier",
@@ -127,7 +128,7 @@ type TuiSidebarPanelPatch = Partial<StatusProviderConfig["tuiSidebarPanel"]>;
 type TuiCompactStatusPatch = Partial<StatusProviderConfig["tuiCompactStatus"]>;
 type LayoutPatch = Partial<StatusProviderConfig["layout"]>;
 
-type ValidatedStatusProviderPatch = {
+type ValidatedStatusProviderPatch = Partial<Pick<StatusProviderConfig, "toastTextVariant" | "toastProviderNameVariant" | "toastPercentVariant" | "toastColorVariant" | "toastAlignmentVariant">> & {
   enabled?: boolean;
   enableToast?: boolean;
   formatStyle?: StatusProviderConfig["formatStyle"];
@@ -379,6 +380,7 @@ function normalizeProviderOrder(value: unknown): string[] | undefined {
   if (!Array.isArray(value)) {
     return undefined;
   }
+  if (value.length === 0) return [];
 
   const validIds: string[] = [];
   const invalidIds: string[] = [];
@@ -706,7 +708,35 @@ function extractValidatedStatusProviderPatch(
     }
   }
 
+  if (isValidTextVariant(statusProviderConfig.toastTextVariant)) patch.toastTextVariant = statusProviderConfig.toastTextVariant;
+  if (isValidProviderNameVariant(statusProviderConfig.toastProviderNameVariant)) patch.toastProviderNameVariant = statusProviderConfig.toastProviderNameVariant;
+  if (isValidPercentVariant(statusProviderConfig.toastPercentVariant)) patch.toastPercentVariant = statusProviderConfig.toastPercentVariant;
+  if (isValidColorVariant(statusProviderConfig.toastColorVariant)) patch.toastColorVariant = statusProviderConfig.toastColorVariant;
+  if (isValidAlignmentVariant(statusProviderConfig.toastAlignmentVariant)) patch.toastAlignmentVariant = statusProviderConfig.toastAlignmentVariant;
+
   return patch;
+}
+
+/** Strict update validation shared by CLI and TUI; the file loader stays tolerant. */
+export function normalizeStatusProviderUpdate(input: Record<string, unknown>): Record<string, unknown> {
+  const issues: string[] = [];
+  const normalized = extractValidatedStatusProviderPatch(input, (key, message) => issues.push(`${key}: ${message}`));
+  function verify(source: Record<string, unknown>, target: Record<string, unknown>, prefix = "") {
+    for (const [key, value] of Object.entries(source)) {
+      const path = prefix ? `${prefix}.${key}` : key;
+      const resolved = target[key];
+      if (!(STATUS_PROVIDER_SETTING_SOURCE_KEYS as readonly string[]).some((known) => known === path || known.startsWith(`${path}.`))) throw new Error(`Unsupported setting: ${path}`);
+      if (isPlainObject(value)) {
+        if (!isPlainObject(resolved)) throw new Error(`Invalid value for ${path}`);
+        verify(value, resolved, path);
+      } else if (resolved === undefined) throw new Error(`Invalid value for ${path}`);
+      if ((key === "providerOrder" || key === "enabledProviders") && Array.isArray(value) && value.some((id) => typeof id !== "string" || !getStatusProviderShape(normalizeStatusProviderId(id)))) throw new Error(`Unknown provider in ${path}`);
+    }
+  }
+  verify(input, normalized as Record<string, unknown>);
+  if (issues.length) throw new Error(issues.join("; "));
+  const { enabledProvidersInvalidEmpty: _ignored, ...result } = normalized;
+  return result;
 }
 
 function applySettingSource(
@@ -723,6 +753,11 @@ function applyValidatedStatusProviderPatch(
   sourcePath: string,
   settingSources: StatusProviderSettingSources,
 ): void {
+  if (patch.toastTextVariant !== undefined) { config.toastTextVariant = patch.toastTextVariant; applySettingSource(settingSources, "toastTextVariant", sourcePath); }
+  if (patch.toastProviderNameVariant !== undefined) { config.toastProviderNameVariant = patch.toastProviderNameVariant; applySettingSource(settingSources, "toastProviderNameVariant", sourcePath); }
+  if (patch.toastPercentVariant !== undefined) { config.toastPercentVariant = patch.toastPercentVariant; applySettingSource(settingSources, "toastPercentVariant", sourcePath); }
+  if (patch.toastColorVariant !== undefined) { config.toastColorVariant = patch.toastColorVariant; applySettingSource(settingSources, "toastColorVariant", sourcePath); }
+  if (patch.toastAlignmentVariant !== undefined) { config.toastAlignmentVariant = patch.toastAlignmentVariant; applySettingSource(settingSources, "toastAlignmentVariant", sourcePath); }
   if (hasOwnKey(patch, "enabled")) {
     config.enabled = patch.enabled!;
     applySettingSource(settingSources, "enabled", sourcePath);

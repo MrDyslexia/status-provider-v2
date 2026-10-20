@@ -1,8 +1,7 @@
-import { readFile } from "node:fs/promises";
 import { stdin, stdout } from "node:process";
 import { findGitWorktreeRoot, getEffectiveConfigRoot } from "./config-file-utils.js";
-import { getStatusProviderConfigPath, loadConfig } from "./config.js";
-import { writeJsonAtomic } from "./atomic-json.js";
+import { getStatusProviderConfigPath, loadConfig, normalizeStatusProviderUpdate } from "./config.js";
+import { updateConfigDocument } from "./config-store.js";
 import { getProviders } from "../providers/registry.js";
 import {
   getStatusProviderDisplayLabel,
@@ -716,7 +715,11 @@ async function applyChanges(params: {
   config: StatusProviderConfig;
   changes: PendingChanges;
 }): Promise<void> {
-  const existing = await readConfigFile(params.configPath);
+  normalizeStatusProviderUpdate(params.changes as Record<string, unknown>);
+  await updateConfigDocument(params.configPath, undefined, (existing) => buildConfigData(existing, params));
+}
+
+function buildConfigData(existing: Record<string, unknown>, params: { config: StatusProviderConfig; changes: PendingChanges }): Record<string, unknown> {
   const nextData: Record<string, unknown> = isPlainObject(existing) ? { ...existing } : {};
 
   function setOrDelete(key: string, value: unknown, defaultValue: unknown): void {
@@ -822,7 +825,7 @@ async function applyChanges(params: {
     setOrDelete("toastAlignmentVariant", params.changes.toastAlignmentVariant, c.toastAlignmentVariant);
   }
 
-  await writeJsonAtomic(params.configPath, nextData, { trailingNewline: true });
+  return nextData;
 }
 
 /** Prints a boxed preview block with a title and pre-rendered body lines. */
@@ -1000,15 +1003,6 @@ function buildPreview(params: {
   lines.push("");
 
   return lines.join("\n");
-}
-
-async function readConfigFile(path: string): Promise<unknown> {
-  try {
-    const content = await readFile(path, "utf-8");
-    return JSON.parse(content);
-  } catch {
-    return null;
-  }
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
