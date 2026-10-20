@@ -15,6 +15,7 @@ import { googleAntigravityProvider } from "./google-antigravity.js";
 import { googleGeminiCliProvider } from "./google-gemini-cli.js";
 import { syntheticProvider } from "./synthetic.js";
 import { chutesProvider } from "./chutes.js";
+import { ollamaCloudProvider } from "./ollama-cloud.js";
 import { crofProvider } from "./crof.js";
 import { qwenCodeProvider } from "./qwen-code.js";
 import { alibabaCodingPlanProvider } from "./alibaba-coding-plan.js";
@@ -39,6 +40,7 @@ export function getProviders(): StatusProvider[] {
     alibabaCodingPlanProvider,
     syntheticProvider,
     chutesProvider,
+    ollamaCloudProvider,
     crofProvider,
     googleAntigravityProvider,
     googleGeminiCliProvider,

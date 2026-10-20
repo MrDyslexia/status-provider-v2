@@ -70,6 +70,13 @@ describe("provider-metadata", () => {
         status: "remote_api",
       },
       {
+        id: "ollama-cloud",
+        autoSetup: "yes",
+        authentication: "opencode_auth_api_key",
+        authFallbacks: ["env_api_key", "global_opencode_config"],
+        status: "remote_api",
+      },
+      {
         id: "crof",
         autoSetup: "manual_env_config",
         authentication: "external_api_key",

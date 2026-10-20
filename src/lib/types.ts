@@ -674,6 +674,14 @@ export type MiniMaxResult =
       entries: MiniMaxResultEntry[];
     }
   | StatusError;
+export type OllamaCloudResult =
+  | {
+      success: true;
+      windows: Array<{ label: string; percentRemaining: number; resetTimeIso?: string }>;
+      purchased?: string;
+    }
+  | (StatusError & { rateLimitedUntil?: number })
+  | null;
 export type ChutesResult =
   | {
       success: true;

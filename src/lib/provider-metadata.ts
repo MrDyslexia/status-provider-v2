@@ -7,6 +7,7 @@ export type CanonicalStatusProviderId =
   | "alibaba-coding-plan"
   | "synthetic"
   | "chutes"
+  | "ollama-cloud"
   | "crof"
   | "google-antigravity"
   | "google-gemini-cli"
@@ -57,6 +58,7 @@ export const STATUS_PROVIDER_LABELS: Readonly<Record<string, string>> = {
   "google-gemini-cli": "Gemini CLI",
   synthetic: "Synthetic",
   chutes: "Chutes",
+  "ollama-cloud": "Ollama Cloud",
   crof: "Crof",
   cursor: "Cursor",
   "qwen-code": "Qwen",
@@ -109,6 +111,7 @@ export const STATUS_PROVIDER_RUNTIME_IDS: StatusProviderRuntimeIds = {
   "alibaba-coding-plan": ["alibaba-coding-plan"],
   synthetic: ["synthetic"],
   chutes: ["chutes", "chutes-ai"],
+  "ollama-cloud": ["ollama-cloud", "ollama"],
   crof: ["crof"],
   "google-antigravity": ["google-antigravity", "google", "antigravity"],
   "google-gemini-cli": [
@@ -191,6 +194,13 @@ export const STATUS_PROVIDER_SHAPES: readonly StatusProviderShape[] = [
   {
     id: "chutes",
     autoSetup: "usually",
+    authentication: "opencode_auth_api_key",
+    authFallbacks: ["env_api_key", "global_opencode_config"],
+    status: "remote_api",
+  },
+  {
+    id: "ollama-cloud",
+    autoSetup: "yes",
     authentication: "opencode_auth_api_key",
     authFallbacks: ["env_api_key", "global_opencode_config"],
     status: "remote_api",
@@ -291,6 +301,7 @@ export const STATUS_PROVIDER_SHORT_LABELS: Readonly<Record<string, string>> = {
   "google-gemini-cli": "Gemini",
   synthetic: "Synth",
   chutes: "Chutes",
+  "ollama-cloud": "Ollama",
   crof: "Crof",
   cursor: "Cursor",
   "qwen-code": "Qwen",
@@ -314,6 +325,7 @@ export const STATUS_PROVIDER_ICONS: Readonly<Record<string, string>> = {
   "google-gemini-cli": "▲",
   synthetic: "◇",
   chutes: "⚡",
+  "ollama-cloud": "◍",
   crof: "◉",
   cursor: "▣",
   "qwen-code": "✦",
